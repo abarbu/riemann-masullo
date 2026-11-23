@@ -1,5 +1,8 @@
 module
 
+import RiemannMasullo.ForMathlib.Analysis.LocallyConvex.MittagLefflerLift
+import Mathlib.Analysis.SpecialFunctions.Pow.Asymptotics
+
 import all RiemannMasullo.Ch05_ThetaZSpaces.Sec1
 import all RiemannMasullo.Ch05_ThetaZSpaces.Sec2
 import all RiemannMasullo.Ch05_ThetaZSpaces.Sec5
@@ -2445,18 +2448,6 @@ theorem sLocalGammaFiltration_iInf (ω : PontryaginDual J₁(S)) :
     rw [mem_sLocalThetaPoleBound_iff_residue_congr he, complexResidue_div_sub hg]
     simp [zero_pow j.property.2.2.1.ne']
 
--- TODO(paper-gap): ERRATA I168 applies to the appeal to §5.4 on p. 365.
--- Finite interpolation only gives a dense coefficient image in the product topology.
--- Simultaneous realization in the original space is a separate proof obligation.
-
-/-- Paper: Theorem 7.3.4.1(4), p. 365.
-Every array of archimedean principal parts on the component is realized by one
-class in the full finite principal-value range.
-Deviation: States explicitly the interpolation needed for the canonical product model. -/
-theorem sLocalGamma_all_coeff_surjective (ω : PontryaginDual J₁(S)) :
-    Function.Surjective (fun (x : fullPV(ω)) (j : ΓIndex(ω, (Set.univ : Set Xₛ))) ↦
-      ΓCoeff(ω, j) x) := by sorry
-
 /-- Every unitary character of the norm-one group is the restriction of a quasi-character. -/
 private theorem sLocalGammaOrbitalQuotient_coeff_exists (ω : PontryaginDual J₁(S)) :
     ∃ c₀ : Xₛ, onComponent(c₀, ω) := by
@@ -2581,6 +2572,818 @@ private theorem sLocalGammaOrbitalQuotient_coeff_ker (ω : PontryaginDual J₁(S
   · intro h N
     exact (Submodule.mem_iInf _).mpr fun j ↦
       h ⟨j.val, j.property.1, Set.mem_univ _, j.property.2.2⟩
+
+-- Repair the open-mapping gap (ERRATA I168) by a Borel–Mittag-Leffler lift.
+-- Norm translations give exponentially small finite interpolants at far-left poles;
+-- the closed full principal-value range is Fréchet, so the corrections converge.
+section GammaInterpolationHelpers
+
+private theorem finite_interpolant_small
+    (E ι : Type*) [AddCommGroup E] [Module ℂ E] [Fintype ι]
+    (q : Seminorm ℂ E) (v : ι → ℝ → E) (a : ι → ℝ → ℂ) (b : ι → ℝ → ℝ)
+    (hv : ∀ i, ∀ᶠ t in atTop, q (v i t) ≤ b i t)
+    (ha : ∀ i, Tendsto (fun t ↦ ‖a i t‖ * b i t) atTop (𝓝 0)) :
+    Tendsto (fun t ↦ q (∑ i, a i t • v i t)) atTop (𝓝 0) := by
+  apply squeeze_zero' (Eventually.of_forall fun _ ↦ apply_nonneg _ _)
+    (g := fun t ↦ ∑ i, ‖a i t‖ * b i t)
+  · have hall : ∀ᶠ t in atTop, ∀ i, q (v i t) ≤ b i t :=
+      Filter.eventually_all.mpr hv
+    filter_upwards [hall] with t ht
+    refine (Finset.le_sum_of_subadditive q (map_zero q).le (map_add_le_add q) _ _).trans ?_
+    apply Finset.sum_le_sum
+    intro i hi
+    rw [map_smul_eq_mul]
+    exact mul_le_mul_of_nonneg_left (ht i) (norm_nonneg _)
+  · simpa only [Finset.sum_const_zero] using tendsto_finsetSum Finset.univ (fun i _ ↦ ha i)
+open Classical in
+private theorem finite_level_small
+    (E ι : Type*) [AddCommGroup E] [Module ℂ E] [Fintype ι]
+    (P : Submodule ℂ E) (L : ι → E →ₗ[ℂ] ℂ)
+    (ρ : ℝ → E →ₗ[ℂ] E)
+    (hinv : ∀ t x, ρ t (ρ (-t) x) = x)
+    (hP : ∀ t x, x ∈ P → ρ t x ∈ P)
+    (hK : ∀ t x, x ∈ P → (∀ i, L i x = 0) → ∀ i, L i (ρ t x) = 0)
+    (v : ι → E) (hvP : ∀ i, v i ∈ P)
+    (hvL : ∀ i j, L i (v j) = if i = j then 1 else 0)
+    (q q' : Seminorm ℂ E) (a : ℝ)
+    (hbound : ∀ x, ∀ᶠ t in atTop, q (ρ t x) ≤ Real.exp (-a*t) * q' x)
+    (hdecay : ∀ y ∈ P, ∀ i,
+      Tendsto (fun t ↦ Real.exp (-a*t) * ‖L i (ρ (-t) y)‖) atTop (𝓝 0))
+    (c : ι → ℂ) (ε : ℝ) (hε : 0 < ε) :
+    ∃ x ∈ P, (∀ i, L i x = c i) ∧ q x < ε := by
+  classical
+  let y := ∑ i, c i • v i
+  have hyP : y ∈ P := P.sum_mem fun i _ ↦ P.smul_mem _ (hvP i)
+  have hyL (i) : L i y = c i := by simp [y, map_sum, map_smul, hvL]
+  let z (t : ℝ) := ∑ i, L i (ρ (-t) y) • v i
+  have hzP (t) : z t ∈ P := P.sum_mem fun i _ ↦ P.smul_mem _ (hvP i)
+  have hzL (t) (i) : L i (z t) = L i (ρ (-t) y) := by simp [z, map_sum, map_smul, hvL]
+  have hcoef (t) (i) : L i (ρ t (z t)) = c i := by
+    have hzero (j) : L j (z t - ρ (-t) y) = 0 := by rw [map_sub, hzL]; exact sub_self _
+    have hh := hK t (z t - ρ (-t) y) (P.sub_mem (hzP t) (hP _ _ hyP)) hzero i
+    rw [map_sub, hinv, map_sub, sub_eq_zero, hyL] at hh
+    exact hh
+  have hsmall : Tendsto (fun t ↦ q (ρ t (z t))) atTop (𝓝 0) := by
+    have h := finite_interpolant_small E ι q (fun i t ↦ ρ t (v i))
+      (fun i t ↦ L i (ρ (-t) y)) (fun i t ↦ Real.exp (-a*t) * q' (v i))
+      (fun i ↦ hbound (v i)) (fun i ↦ ?_)
+    · simpa only [z, map_sum, map_smul] using h
+    · have hh := (hdecay y hyP i).mul_const (q' (v i))
+      convert hh using 1 <;> try { simp }
+      funext t
+      ring
+  obtain ⟨t,ht⟩ := (hsmall.eventually (gt_mem_nhds hε)).exists
+  exact ⟨ρ t (z t), hP _ _ (hzP t), hcoef t, ht⟩
+private theorem image_action_bound
+    (E κ U : Type*) [AddCommGroup E] [Module ℂ E] [TopologicalSpace E]
+    (p : SeminormFamily ℂ E κ) (hp : WithSeminorms p) (r : κ → ℝ)
+    (ρ : ℝ → U → U) (J : U → E)
+    (he : ∀ i t x, p i (J (ρ t x)) = Real.exp (-r i*t) * p i (J x))
+    (q : Seminorm ℂ E) (hq : Continuous q) :
+    ∃ a : ℝ, ∃ q' : Seminorm ℂ E,
+      ∀ x, ∀ᶠ t in atTop, q (J (ρ t x)) ≤ Real.exp (-a*t) * q' (J x) := by
+  classical
+  obtain ⟨s,C,hC,hb⟩ := Seminorm.bound_sum_of_continuous hp q hq
+  let a := -∑ i ∈ s, |r i|
+  let q' : Seminorm ℂ E := C • ∑ i ∈ s, p i
+  refine ⟨a,q',fun x ↦ ?_⟩
+  filter_upwards [eventually_ge_atTop (0 : ℝ)] with t ht
+  have hr (i) (hi : i ∈ s) : a ≤ r i := by
+    have h := Finset.single_le_sum (fun i _ ↦ abs_nonneg (r i)) hi
+    have h' := neg_abs_le (r i)
+    dsimp [a]
+    linarith
+  have hsum : (∑ i ∈ s, p i (J (ρ t x))) ≤ Real.exp (-a*t) * ∑ i ∈ s, p i (J x) := by
+    rw [Finset.mul_sum]
+    apply Finset.sum_le_sum
+    intro i hi
+    rw [he]
+    exact mul_le_mul_of_nonneg_right (Real.exp_le_exp.mpr (by nlinarith [hr i hi])) (apply_nonneg _ _)
+  have hh := hb (J (ρ t x))
+  simp only [smul_apply, sum_apply, NNReal.smul_def, smul_eq_mul] at hh
+  change q (J (ρ t x)) ≤ _ at hh
+  calc
+    q (J (ρ t x)) ≤ (C : ℝ) * ∑ i ∈ s, p i (J (ρ t x)) := hh
+    _ ≤ (C : ℝ) * (Real.exp (-a*t) * ∑ i ∈ s, p i (J x)) := mul_le_mul_of_nonneg_left hsum C.coe_nonneg
+    _ = Real.exp (-a*t) * q' (J x) := by
+      simp only [q', smul_apply, sum_apply, NNReal.smul_def, smul_eq_mul]
+      ring
+private theorem exponential_polynomial_decay (s : ℂ) (a : ℝ) (hsa : s.re < a)
+    (n : ℕ) (b : ℕ → ℂ) :
+    Tendsto (fun t : ℝ ↦ Real.exp (-a*t) *
+      ‖Complex.exp (s*(t : ℂ)) * ∑ k ∈ Finset.range n, b k * (t : ℂ)^k‖) atTop (𝓝 0) := by
+  have hlim (k : ℕ) : Tendsto (fun t : ℝ ↦ t^k * Real.exp (-(a-s.re)*t)) atTop (𝓝 0) := by
+    simpa only [Real.rpow_natCast] using
+      tendsto_rpow_mul_exp_neg_mul_atTop_nhds_zero (k : ℝ) (a-s.re) (sub_pos.mpr hsa)
+  apply squeeze_zero' (Eventually.of_forall fun _ ↦ mul_nonneg (Real.exp_pos _).le (norm_nonneg _))
+    (g := fun t : ℝ ↦ ∑ k ∈ Finset.range n, ‖b k‖ * (t^k * Real.exp (-(a-s.re)*t)))
+  · filter_upwards [eventually_ge_atTop (0 : ℝ)] with t ht
+    have hS : ‖∑ k ∈ Finset.range n, b k * (t : ℂ)^k‖ ≤ ∑ k ∈ Finset.range n, ‖b k‖ * t^k := by
+      simpa only [norm_mul, norm_pow, Complex.norm_real, Real.norm_of_nonneg ht] using
+        norm_sum_le (Finset.range n) (fun k ↦ b k * (t : ℂ)^k)
+    have he : Real.exp (-a*t) * ‖Complex.exp (s*(t : ℂ))‖ = Real.exp (-(a-s.re)*t) := by
+      rw [Complex.norm_exp, ← Real.exp_add]
+      congr 1
+      simp only [Complex.mul_re, Complex.ofReal_re, Complex.ofReal_im, mul_zero, sub_zero]
+      ring
+    rw [norm_mul, ← mul_assoc, he]
+    calc
+      _ ≤ Real.exp (-(a-s.re)*t) * ∑ k ∈ Finset.range n, ‖b k‖ * t^k :=
+        mul_le_mul_of_nonneg_left hS (Real.exp_pos _).le
+      _ = _ := by
+        rw [Finset.mul_sum]
+        apply Finset.sum_congr rfl
+        intro k hk
+        ring
+  · have h := tendsto_finsetSum (Finset.range n) (fun k _ ↦ (hlim k).const_mul ‖b k‖)
+    simpa only [mul_zero, Finset.sum_const_zero] using h
+open MeasureTheory in
+private theorem bergman_trace_multiplier_norm
+    (I : Set ℝ) (a : I) (N : ℕ) (f g : schwartzBergmanSubmodule I) (t : ℝ)
+    (he : ∀ z ∈ Complex.re ⁻¹' I, g.val z = Complex.exp (-(t : ℂ)*z) * f.val z) :
+    lpNorm (weightedVerticalTrace a N g.val) 2 volume =
+      Real.exp (-t*(a : ℝ)) * lpNorm (weightedVerticalTrace a N f.val) 2 volume := by
+  have hg := schwartzBergman_trace_memLp I a 2 (by norm_num) (by norm_num) N g
+  have hf := schwartzBergman_trace_memLp I a 2 (by norm_num) (by norm_num) N f
+  have hn (y : ℝ) : ‖weightedVerticalTrace a N g.val y‖ =
+      ‖((Real.exp (-t*(a : ℝ))) • weightedVerticalTrace a N f.val) y‖ := by
+    have hz : (a : ℂ) + (y : ℂ)*Complex.I ∈ Complex.re ⁻¹' I := by
+      change ((a : ℂ) + (y : ℂ)*Complex.I).re ∈ I
+      simpa using a.property
+    simp only [weightedVerticalTrace]
+    rw [he _ hz]
+    simp only [weightedVerticalTrace, norm_mul, Complex.norm_exp, Pi.smul_apply, norm_smul,
+      Real.norm_of_nonneg (Real.exp_pos _).le, Complex.mul_re, Complex.neg_re,
+      Complex.neg_im, Complex.ofReal_re, Complex.ofReal_im, Complex.add_re,
+      Complex.add_im, Complex.I_re, Complex.I_im, mul_zero, zero_mul, neg_zero,
+      add_zero, zero_add, sub_zero, mul_one]
+    ring
+  unfold lpNorm
+  rw [eLpNorm_congr_norm_ae hg.aestronglyMeasurable
+    (hf.const_smul (Real.exp (-t*(a : ℝ)))).aestronglyMeasurable (Eventually.of_forall hn)]
+  change lpNorm ((Real.exp (-t*(a : ℝ))) • weightedVerticalTrace a N f.val) 2 volume = _
+  rw [lpNorm_const_smul]
+  change |Real.exp (-t*(a : ℝ))| * lpNorm (weightedVerticalTrace a N f.val) 2 volume = _
+  rw [abs_of_pos (Real.exp_pos _)]
+  rfl
+private theorem finite_interpolation
+    (E ι : Type*) [AddCommGroup E] [Module ℂ E] [TopologicalSpace E] [Fintype ι]
+    (L : ι → E →L[ℂ] ℂ) (hL : LinearIndependent ℂ L) :
+    Surjective (fun x : E ↦ fun i ↦ L i x) := by
+  classical
+  let T : E →ₗ[ℂ] (ι → ℂ) := LinearMap.pi (fun i ↦ (L i).toLinearMap)
+  change Surjective T
+  apply LinearMap.dualMap_injective_iff.mp
+  apply (injective_iff_map_eq_zero _).mpr
+  intro f hf
+  have hsum : ∑ i, f (Pi.single i 1) • L i = 0 := by
+    ext x
+    have hTx : T x = ∑ i, L i x • Pi.single i (1 : ℂ) := by
+      ext j
+      simp [T, Pi.single_apply]
+    have hh := congrArg (fun ℓ : Module.Dual ℂ E ↦ ℓ x) hf
+    change f (T x) = 0 at hh
+    rw [hTx, map_sum] at hh
+    simpa only [sum_apply, smul_apply, map_smul, smul_eq_mul, mul_comm, zero_apply] using hh
+  have hc := (Fintype.linearIndependent_iff.mp hL) (fun i ↦ f (Pi.single i 1)) hsum
+  apply LinearMap.ext
+  intro u
+  have hu : u = ∑ i, u i • Pi.single i (1 : ℂ) := by
+    ext j
+    simp [Pi.single_apply]
+  change f u = 0
+  rw [hu,map_sum]
+  simp only [map_smul, hc, smul_zero, Finset.sum_const_zero]
+private theorem gamma_frechet_embed
+    {X Y : Type*} [AddCommGroup X] [Module ℂ X] [TopologicalSpace X]
+    [IsTopologicalAddGroup X] [AddCommGroup Y] [Module ℂ Y] [TopologicalSpace Y]
+    (i : X →L[ℂ] Y) (hi : IsClosedEmbedding i) (hY : IsFrechetTVS Y) : IsFrechetTVS X := by
+  obtain ⟨hadd,hpoly,hmet,hcomplete⟩ := hY
+  let : UniformSpace Y := IsTopologicalAddGroup.rightUniformSpace Y
+  let : IsUniformAddGroup Y := isUniformAddGroup_of_addCommGroup
+  let : CompleteSpace Y := hcomplete
+  let : UniformSpace X := IsTopologicalAddGroup.rightUniformSpace X
+  let : IsUniformAddGroup X := isUniformAddGroup_of_addCommGroup
+  have hu := AddMonoidHom.isUniformInducing_of_isInducing (f := i.toLinearMap.toAddMonoidHom) hi.isInducing
+  exact ⟨inferInstance, hi.eq_induced ▸ PolynormableSpace.induced i.toLinearMap,
+    hi.isEmbedding.metrizableSpace, hu.completeSpace hi.isClosed_range.isComplete⟩
+private theorem gamma_range_frechet (F : Type*) [Field F] [NumberField F]
+    (S : Finset (HeightOneSpectrum (𝓞 F)))
+    (ω : PontryaginDual (sIdeleQuotientNorm F S).ker) :
+    IsFrechetTVS ↥((sLocalHomogeneousThetaPrincipalValue (F := F) (Finset.Subset.refl S) ω).range) := by
+  let D := (sLocalHomogeneousThetaPrincipalValue (F := F) (Finset.Subset.refl S) ω).range
+  have hD : IsClosed (D : Set (SLocalHomogeneousThetaSpace F S ω)) :=
+    (sLocalHomogeneousThetaPrincipalValue_isClosedEmbedding (F := F) (Finset.Subset.refl S) ω).isClosed_range
+  exact gamma_frechet_embed D.subtypeL (D.isClosedEmbedding_subtypeL hD)
+    (sLocalHomogeneousThetaSpace_frechet (F := F) (S := S) ω)
+private theorem action_on_range
+    (G E : Type*) [Monoid G] [AddCommGroup E] [Module ℂ E] [TopologicalSpace E]
+    (A : G →* (E →L[ℂ] E)) (P : E →ₗ[ℂ] E)
+    (hcomm : ∀ g x, A g (P x) = P (A g x)) :
+    ∃ ρ : G →* (P.range →L[ℂ] P.range), ∀ g x, (ρ g x).val = A g x.val := by
+  have hpres (g) : ∀ x ∈ P.range, A g x ∈ P.range := by
+    rintro x ⟨y,rfl⟩
+    exact ⟨A g y,(hcomm g y).symm⟩
+  let ρ (g : G) : P.range →L[ℂ] P.range := (A g).restrict (hpres g)
+  refine ⟨{ toFun := ρ, map_one' := ?_, map_mul' := ?_ },fun g x ↦ rfl⟩
+  · ext x
+    change A 1 x.val = x.val
+    rw [A.map_one]
+    rfl
+  · intro g h
+    ext x
+    change A (g*h) x.val = A g (A h x.val)
+    rw [A.map_mul]
+    rfl
+private theorem product_action_bound
+    (E X Y κ ιY : Type*) [AddCommGroup E] [Module ℂ E] [TopologicalSpace E]
+    [AddCommGroup X] [Module ℂ X] [TopologicalSpace X]
+    [AddCommGroup Y] [Module ℂ Y] [TopologicalSpace Y]
+    (p : SeminormFamily ℂ X κ) (hp : WithSeminorms p)
+    (q : SeminormFamily ℂ Y ιY) (hq : WithSeminorms q)
+    (r : κ → ℝ) (s : ιY → ℝ)
+    (ρ : ℝ → E →ₗ[ℂ] E) (J : E →ₗ[ℂ] X × Y) (hJ : IsInducing J)
+    (hx : ∀ i t x, p i (J (ρ t x)).1 = Real.exp (-r i*t) * p i (J x).1)
+    (hy : ∀ i t x, q i (J (ρ t x)).2 = Real.exp (-s i*t) * q i (J x).2)
+    (Q : Seminorm ℂ E) (hQ : Continuous Q) :
+    ∃ a : ℝ, ∃ Q' : Seminorm ℂ E,
+      ∀ x, ∀ᶠ t in atTop, Q (ρ t x) ≤ Real.exp (-a*t) * Q' x := by
+  let : PolynormableSpace ℂ X := hp.toPolynormableSpace
+  let : PolynormableSpace ℂ Y := hq.toPolynormableSpace
+  obtain ⟨B,hB,hQB⟩ := Seminorm.exists_le_comp_of_isInducing hQ hJ
+  let Bx := B.comp (LinearMap.inl ℂ X Y)
+  let By := B.comp (LinearMap.inr ℂ X Y)
+  have hBx : Continuous Bx := hB.comp (continuous_id.prodMk continuous_const)
+  have hBy : Continuous By := hB.comp (continuous_const.prodMk continuous_id)
+  obtain ⟨ax,Bx',hx'⟩ := image_action_bound X κ E p hp r (fun t ↦ ρ t) (fun x ↦ (J x).1) hx Bx hBx
+  obtain ⟨ay,By',hy'⟩ := image_action_bound Y ιY E q hq s (fun t ↦ ρ t) (fun x ↦ (J x).2) hy By hBy
+  let a := min ax ay
+  let Q' := (Bx'.comp ((LinearMap.fst ℂ X Y).comp J)) + (By'.comp ((LinearMap.snd ℂ X Y).comp J))
+  refine ⟨a,Q',fun x ↦ ?_⟩
+  filter_upwards [hx' x,hy' x,eventually_ge_atTop (0 : ℝ)] with t htX htY ht
+  have heX : Real.exp (-ax*t) ≤ Real.exp (-a*t) := Real.exp_le_exp.mpr (by have := min_le_left ax ay; dsimp [a]; nlinarith)
+  have heY : Real.exp (-ay*t) ≤ Real.exp (-a*t) := Real.exp_le_exp.mpr (by have := min_le_right ax ay; dsimp [a]; nlinarith)
+  calc
+    Q (ρ t x) ≤ B (J (ρ t x)) := hQB _
+    _ ≤ Bx (J (ρ t x)).1 + By (J (ρ t x)).2 := by
+      have hb := map_add_le_add B ((J (ρ t x)).1,0) (0,(J (ρ t x)).2)
+      change B ((J (ρ t x)).1,(J (ρ t x)).2) ≤
+        B ((J (ρ t x)).1,0) + B (0,(J (ρ t x)).2)
+      simpa only [Prod.mk_add_mk,add_zero,zero_add] using hb
+    _ ≤ Real.exp (-ax*t) * Bx' (J x).1 + Real.exp (-ay*t) * By' (J x).2 := add_le_add htX htY
+    _ ≤ Real.exp (-a*t) * (Bx' (J x).1 + By' (J x).2) := by
+      rw [mul_add]
+      exact add_le_add (mul_le_mul_of_nonneg_right heX (apply_nonneg _ _))
+        (mul_le_mul_of_nonneg_right heY (apply_nonneg _ _))
+    _ = Real.exp (-a*t) * Q' x := rfl
+private theorem finite_code_prefix (ι : Type*) (code : ι → ℕ)
+    (hf : ∀ n, Finite {i : ι // code i = n}) (k : ℕ) :
+    Finite {i : ι // code i ≤ k} := by
+  letI (n : Fin (k+1)) : Finite {i : ι // code i = n.val} := hf n.val
+  let f : {i : ι // code i ≤ k} → (n : Fin (k+1)) × {i : ι // code i = n.val} :=
+    fun i ↦ ⟨⟨code i.val,Nat.lt_succ_of_le i.property⟩,⟨i.val,rfl⟩⟩
+  apply Finite.of_injective f
+  intro i j h
+  apply Subtype.ext
+  exact congrArg (fun x : (n : Fin (k+1)) × {i : ι // code i = n.val} ↦ x.2.val) h
+open Classical in
+private theorem surjective_of_translated_coefficients
+    (E ι : Type*) [AddCommGroup E] [Module ℂ E] [TopologicalSpace E]
+    (hE : IsFrechetTVS E) (L : ι → E →L[ℂ] ℂ) (code : ι → ℕ)
+    (hf : ∀ k, Finite {i : ι // code i = k})
+    (hv : ∀ k, ∃ v : {i : ι // code i = k} → E,
+      (∀ i j, code j < k → L j (v i) = 0) ∧
+      ∀ i j, (i = j → L j.val (v i) = 1) ∧ (i ≠ j → L j.val (v i) = 0))
+    (ρ : ℝ → E →ₗ[ℂ] E) (hinv : ∀ t x, ρ t (ρ (-t) x) = x)
+    (hker : ∀ (p : ℕ → Prop) t x, (∀ i, p (code i) → L i x = 0) →
+      ∀ i, p (code i) → L i (ρ t x) = 0)
+    (hbound : ∀ q : Seminorm ℂ E, Continuous q → ∃ a : ℝ, ∃ q' : Seminorm ℂ E,
+      ∀ x, ∀ᶠ t in atTop, q (ρ t x) ≤ Real.exp (-a*t) * q' x)
+    (htail : ∀ a : ℝ, ∃ K : ℕ, ∀ i, K ≤ code i → ∀ y,
+      Tendsto (fun t ↦ Real.exp (-a*t) * ‖L i (ρ (-t) y)‖) atTop (𝓝 0)) :
+    Surjective (fun x : E ↦ fun i ↦ L i x) := by
+  obtain ⟨hadd,hpoly,hmet,hcomplete⟩ := hE
+  let : UniformSpace E := IsTopologicalAddGroup.rightUniformSpace E
+  let : IsUniformAddGroup E := isUniformAddGroup_of_addCommGroup
+  let : CompleteSpace E := hcomplete
+  letI (k : ℕ) : Fintype {i : ι // code i = k} := Fintype.ofFinite _
+  have hs : Surjective (fun x : E ↦ fun k (i : {i : ι // code i = k}) ↦ L i.val x) := by
+    apply surjective_coeff_of_eventually_small
+    · intro k c
+      obtain ⟨v,hv0,hvraw⟩ := hv k
+      have hv1 (i j) : L j.val (v i) = if i = j then 1 else 0 := by
+        by_cases h : i = j
+        · rw [if_pos h]; exact (hvraw i j).1 h
+        · rw [if_neg h]; exact (hvraw i j).2 h
+      let y := ∑ i, c i • v i
+      refine ⟨y,?_,?_⟩
+      · intro j hj i
+        simp [y,map_sum,map_smul,hv0 _ _ (by rw [i.property]; exact hj)]
+      · intro i
+        simp [y,map_sum,map_smul,hv1,eq_comm]
+    · intro q hq
+      obtain ⟨a,q',hb⟩ := hbound q hq
+      obtain ⟨K,hK⟩ := htail a
+      refine ⟨K,fun k hk c ε hε ↦ ?_⟩
+      let P : Submodule ℂ E := ⨅ i : {i : ι // code i < k}, (L i.val).ker
+      have hP (x : E) : x ∈ P ↔ ∀ i, code i < k → L i x = 0 := by simp [P]
+      obtain ⟨v,hv0,hv1⟩ := hv k
+      obtain ⟨x,hx,hL,hsmall⟩ := finite_level_small E {i : ι // code i = k} P
+        (fun i ↦ (L i.val).toLinearMap) ρ hinv
+        (fun t x hx ↦ (hP _).mpr (hker (fun n ↦ n < k) t x ((hP _).mp hx)))
+        (fun t x hx hz i ↦ hker (fun n ↦ n ≤ k) t x (fun j hj ↦ by
+          rcases lt_or_eq_of_le hj with hj | hj
+          · exact (hP _).mp hx j hj
+          · exact hz ⟨j,hj⟩) i.val (by rw [i.property]))
+        v (fun i ↦ (hP _).mpr (hv0 i)) (fun i j ↦ by
+          by_cases h : i = j
+          · subst j
+            rw [if_pos rfl]
+            exact (hv1 i i).1 rfl
+          · rw [if_neg h]
+            exact (hv1 j i).2 (Ne.symm h)) q q' a hb
+        (fun y hy i ↦ hK i.val (by rw [i.property]; exact hk) y) c ε hε
+      · refine ⟨x,fun j hj i ↦ (hP x).mp hx i.val ?_,hL,hsmall⟩
+        rw [i.property]
+        exact hj
+  intro c
+  obtain ⟨x,hx⟩ := hs (fun k i ↦ c i.val)
+  refine ⟨x,funext fun i ↦ ?_⟩
+  exact congrFun (congrFun hx (code i)) ⟨i,rfl⟩
+private theorem real_action_inverse (E : Type*) [AddCommGroup E] [Module ℂ E] [TopologicalSpace E]
+    (B : Multiplicative ℝ →* (E →L[ℂ] E)) (t : ℝ) (x : E) :
+    B (Multiplicative.ofAdd (-t)) (B (Multiplicative.ofAdd (-(-t))) x) = x := by
+  have hh : (Multiplicative.ofAdd (-t) : Multiplicative ℝ) * Multiplicative.ofAdd (-(-t)) = 1 := by
+    change -t + -(-t) = 0
+    ring
+  have hB : B (Multiplicative.ofAdd (-t)) * B (Multiplicative.ofAdd (-(-t))) = 1 := by
+    rw [← B.map_mul,hh,B.map_one]
+  exact congrArg (fun f : E →L[ℂ] E ↦ f x) hB
+
+private theorem gamma_full_action (ω : PontryaginDual J₁(S)) :
+    ∃ ρ : J(S) →* (fullPV(ω) →L[ℂ] fullPV(ω)),
+      ∀ g x, (ρ g x).val = A(S, ω) g x.val := by
+  exact action_on_range J(S) Θ(S, ω) A(S, ω) PV((Finset.Subset.refl S), ω)
+    (fun g x ↦ (sLocalPW_principalValue_diagram_comm (F := F) (Finset.Subset.refl S) ω g x).symm)
+
+private theorem gamma_action_laurent (ω : PontryaginDual J₁(S)) (x : Θ(S, ω))
+    (c : Xₛ) (hc : onComponent(c, ω)) (k : ℕ) (hk : k ≤ sLocalRhoPoleOrder c)
+    (u : (SAdeleRing F S)ˣ) :
+    sLocalThetaPrincipalPartCoeff ω c hc k (A(S, ω) (QuotientGroup.mk u) x) =
+      c (QuotientGroup.mk u) * ∑ j ∈ Finset.range (sLocalRhoPoleOrder c-k+1),
+        sLocalThetaPrincipalPartCoeff ω c hc (k+j) x *
+          (Real.log (((m(S) (QuotientGroup.mk u)).val : ℝ)) : ℂ)^j / (j.factorial : ℂ) := by
+  obtain ⟨f,rfl⟩ := Submodule.mkQ_surjective (LinearMap.ker (sLocalHomogeneousAdelicThetaLinearMap F S ω)) x
+  rw [(existsUnique_sLocalHomogeneousThetaAction (F := F) (S := S) ω).exists.choose_spec.2 u f]
+  change sLocalPrincipalPartCoeff c k (schwartzBruhatUnitTranslate u f) =
+    c (QuotientGroup.mk u) * ∑ j ∈ Finset.range (sLocalRhoPoleOrder c-k+1),
+      sLocalPrincipalPartCoeff c (k+j) f *
+        (Real.log (((m(S) (QuotientGroup.mk u)).val : ℝ)) : ℂ)^j / (j.factorial : ℂ)
+  exact sLocalPrincipalPartCoeff_translate c k hk u f
+
+private theorem gamma_high_coeff_zero (ω : PontryaginDual J₁(S)) (x : fullPV(ω))
+    (c : Xₛ) (hc : onComponent(c, ω)) (k : ℕ) (hk : (arch(c)).card < k) :
+    sLocalThetaPrincipalPartCoeff ω c hc k x.val = 0 := by
+  obtain ⟨y,hy⟩ := x.property
+  obtain ⟨f,rfl⟩ := Submodule.mkQ_surjective (LinearMap.ker (sLocalHomogeneousAdelicThetaLinearMap F S ω)) y
+  let g := sAdelePrincipalValue F (Finset.Subset.refl S) f
+  have hg : q(S, ω) g = x.val := hy
+  rw [← hg]
+  change sLocalPrincipalPartCoeff c k g = 0
+  by_contra hne
+  have hpos : 0 < k := lt_of_le_of_lt (Nat.zero_le _) hk
+  have hpole := (sLocalPrincipalPartCoeff_ne_zero_imp_pole c k hpos g hne).2
+  have hb := gammaFiltration_principalValue_bound f c
+  dsimp [g] at hpole
+  omega
+
+private theorem gamma_zeta_translate (χ : PontryaginDual J(S)) (g : J(S)) :
+    let ω := χ.comp (⟨(m(S)).ker.subtype, continuous_subtype_val⟩ : J₁(S) →ₜ* J(S))
+    let Z := sLocalZetaPair (F := F) (S := S) χ
+    ∀ x : Θ(S, ω),
+      EqOn (Z (A(S, ω) g x)).1.val
+        (fun z ↦ shift((⟨Circle.coeHom, continuous_subtype_val⟩ : Circle →ₜ* ℂ).comp χ, z) g * (Z x).1.val z)
+        (Complex.re ⁻¹' Ioi (0 : ℝ)) ∧
+      EqOn (Z (A(S, ω) g x)).2.val
+        (fun z ↦ shift((⟨Circle.coeHom, continuous_subtype_val⟩ : Circle →ₜ* ℂ).comp χ, z) g * (Z x).2.val z)
+        (Complex.re ⁻¹' Iio (1 : ℝ)) := by
+  intro ω Z x
+  obtain ⟨u,rfl⟩ := QuotientGroup.mk_surjective g
+  refine Quotient.inductionOn' x ?_
+  intro f
+  have ha := (existsUnique_sLocalHomogeneousThetaAction (F := F) (S := S) ω).exists.choose_spec.2 u f
+  have ht := sLocalZetaPair_translate (F := F) (S := S) χ u f
+  constructor
+  · intro z hz
+    have he := congrArg (fun y : Θ(S, ω) ↦ (Z y).1.val z) ha
+    exact he.trans (ht.1 hz)
+  · intro z hz
+    have he := congrArg (fun y : Θ(S, ω) ↦ (Z y).2.val z) ha
+    exact he.trans (ht.2 hz)
+
+open MeasureTheory in
+private theorem gamma_action_bound (χ : PontryaginDual J(S)) (g : ℝ → J(S))
+    (hnorm : ∀ t, (((m(S) (g t)).val : ℝ)) = Real.exp (-t))
+    (hχ : ∀ t, χ (g t) = 1) :
+    let ω := χ.comp (⟨(m(S)).ker.subtype, continuous_subtype_val⟩ : J₁(S) →ₜ* J(S))
+    ∀ (ρ : J(S) →* (fullPV(ω) →L[ℂ] fullPV(ω))),
+      (∀ h x, (ρ h x).val = A(S, ω) h x.val) →
+    ∀ Q : Seminorm ℂ (fullPV(ω)), Continuous Q →
+      ∃ a : ℝ, ∃ Q' : Seminorm ℂ (fullPV(ω)),
+        ∀ x, ∀ᶠ t in atTop, Q (ρ (g t) x) ≤ Real.exp (-a*t) * Q' x := by
+  intro ω ρ hρ Q hQ
+  let X := SchwartzBergman (Ioi (0 : ℝ))
+  let Y := SchwartzBergman (Iio (1 : ℝ))
+  let Z := sLocalZetaPair (F := F) (S := S) χ
+  let J : fullPV(ω) →ₗ[ℂ] X × Y := Z.comp (fullPV(ω)).subtype
+  have hJ : IsInducing J := (sLocalZetaPair_isClosedEmbedding (F := F) (S := S) χ).isInducing.comp
+    Topology.IsInducing.subtypeVal
+  let p (I : Set ℝ) : I × ℕ → Seminorm ℂ (SchwartzBergman I) := fun i ↦ Seminorm.of
+    (fun f : schwartzBergmanSubmodule I ↦ (eLpNorm (weightedVerticalTrace i.1 i.2 f.val) 2 volume).toReal)
+    (schwartzBergman_l2_seminorm I i).1 (schwartzBergman_l2_seminorm I i).2
+  have hp (I : Set ℝ) : WithSeminorms (p I) := withGeneratingSeminorms_spec _ _
+  have hfactor (t : ℝ) (z : ℂ) :
+      shift((⟨Circle.coeHom, continuous_subtype_val⟩ : Circle →ₜ* ℂ).comp χ, z) (g t) =
+        Complex.exp (-(t : ℂ)*z) := by
+    change (χ (g t) : ℂ) * ((((m(S) (g t)).val : ℝ) : ℂ)^z) = _
+    rw [hχ t, Circle.coe_one, one_mul, hnorm t]
+    rw [Complex.cpow_def_of_ne_zero (Complex.ofReal_ne_zero.mpr (Real.exp_pos _).ne'),
+      ← Complex.ofReal_log (Real.exp_pos _).le, Real.log_exp, Complex.ofReal_neg]
+  apply product_action_bound (fullPV(ω)) X Y ((Ioi (0 : ℝ)) × ℕ) ((Iio (1 : ℝ)) × ℕ)
+    (p _) (hp _) (p _) (hp _) (fun i ↦ (i.1 : ℝ)) (fun i ↦ (i.1 : ℝ))
+    (fun t ↦ (ρ (g t)).toLinearMap) J hJ ?_ ?_ Q hQ
+  · intro i t x
+    have he : ∀ z ∈ Complex.re ⁻¹' Ioi (0 : ℝ),
+        (J (ρ (g t) x)).1.val z = Complex.exp (-(t : ℂ)*z) * (J x).1.val z := by
+      intro z hz
+      have hmap := congrArg (fun y : Θ(S, ω) ↦ (Z y).1.val z) (hρ (g t) x)
+      have ht := (gamma_zeta_translate χ (g t) x.val).1 hz
+      exact hmap.trans (ht.trans (congrArg (fun w : ℂ ↦ w * (J x).1.val z) (hfactor t z)))
+    have h := bergman_trace_multiplier_norm (Ioi (0 : ℝ)) i.1 i.2 (J x).1 (J (ρ (g t) x)).1 t he
+    change lpNorm (weightedVerticalTrace i.1 i.2 (J (ρ (g t) x)).1.val) 2 volume =
+      Real.exp (-(i.1 : ℝ)*t) * lpNorm (weightedVerticalTrace i.1 i.2 (J x).1.val) 2 volume
+    rw [show -(i.1 : ℝ)*t = -t*(i.1 : ℝ) by ring]
+    exact h
+  · intro i t x
+    have he : ∀ z ∈ Complex.re ⁻¹' Iio (1 : ℝ),
+        (J (ρ (g t) x)).2.val z = Complex.exp (-(t : ℂ)*z) * (J x).2.val z := by
+      intro z hz
+      have hmap := congrArg (fun y : Θ(S, ω) ↦ (Z y).2.val z) (hρ (g t) x)
+      have ht := (gamma_zeta_translate χ (g t) x.val).2 hz
+      exact hmap.trans (ht.trans (congrArg (fun w : ℂ ↦ w * (J x).2.val z) (hfactor t z)))
+    have h := bergman_trace_multiplier_norm (Iio (1 : ℝ)) i.1 i.2 (J x).2 (J (ρ (g t) x)).2 t he
+    change lpNorm (weightedVerticalTrace i.1 i.2 (J (ρ (g t) x)).2.val) 2 volume =
+      Real.exp (-(i.1 : ℝ)*t) * lpNorm (weightedVerticalTrace i.1 i.2 (J x).2.val) 2 volume
+    rw [show -(i.1 : ℝ)*t = -t*(i.1 : ℝ) by ring]
+    exact h
+
+private theorem gamma_weight_shift (τ : ℝ≥0ˣ →ₜ* J(S)) (hτ : RightInverse τ (m(S)))
+    (c : Xₛ) (z : ℂ) :
+    let u : ℝ≥0ˣ := Units.mk0 2 two_ne_zero
+    Real.log ‖shift(c,z) (τ u)‖ / Real.log 2 = Real.log ‖c (τ u)‖ / Real.log 2 + z.re := by
+  intro u
+  have hu : (((u : ℝ≥0ˣ).val : ℝ)) = 2 := by norm_num [u]
+  have hn : ‖shift(c,z) (τ u)‖ = ‖c (τ u)‖ * (2 : ℝ)^z.re := by
+    change ‖c (τ u) * ((((m(S) (τ u)).val : ℝ) : ℂ)^z)‖ = _
+    rw [norm_mul,hτ u,hu,Complex.norm_cpow_eq_rpow_re_of_pos (by norm_num)]
+  have hc : ‖c (τ u)‖ ≠ 0 := norm_ne_zero_iff.mpr (((Group.isUnit (τ u)).map c).ne_zero)
+  rw [hn,Real.log_mul hc (Real.rpow_pos_of_pos (by norm_num) _).ne',Real.log_rpow (by norm_num)]
+  have hlog : Real.log 2 ≠ 0 := (Real.log_pos (by norm_num : (1 : ℝ) < 2)).ne'
+  field_simp
+
+private theorem gamma_finite_centers_above (ω : PontryaginDual J₁(S))
+    (τ : ℝ≥0ˣ →ₜ* J(S)) (hτ : RightInverse τ (m(S))) (A : ℝ) :
+    let u : ℝ≥0ˣ := Units.mk0 2 two_ne_zero
+    Set.Finite {c : Xₛ | onComponent(c,ω) ∧ (arch(c)).Nonempty ∧
+      A ≤ Real.log ‖c (τ u)‖ / Real.log 2} := by
+  intro u
+  classical
+  obtain ⟨c₀,h₀⟩ := sLocalGammaOrbitalQuotient_coeff_exists ω
+  let P (w : InfinitePlace F) := sLocalGammaFiltration_iInf_placePoles c₀ w
+  let b := Real.log ‖c₀ (τ u)‖ / Real.log 2
+  let pole (w : InfinitePlace F) (n : ℕ) : Xₛ :=
+    shift(c₀, -((P w).choose_spec.choose * (n : ℝ) : ℂ) - (P w).choose)
+  choose N hN using fun w : InfinitePlace F ↦
+    exists_nat_gt ((b - (P w).choose.re - A) / (P w).choose_spec.choose)
+  let U := ⋃ w : InfinitePlace F, Set.range (fun n : Fin (N w) ↦ pole w n.val)
+  have hU : U.Finite := Set.finite_iUnion fun w ↦ Set.finite_range _
+  apply hU.subset
+  rintro c ⟨hc,hw,hA⟩
+  obtain ⟨s,hs⟩ := sLocalGammaOrbitalQuotient_coeff_shift ω c₀ c h₀ hc
+  obtain ⟨w,hw⟩ := hw
+  rw [hs] at hw
+  obtain ⟨n,hn⟩ := ((P w).choose_spec.choose_spec.2 s).mp hw
+  have he : c = pole w n := by rw [hs,hn]
+  have hwgt : Real.log ‖c (τ u)‖ / Real.log 2 =
+      b - (P w).choose_spec.choose * (n : ℝ) - (P w).choose.re := by
+    rw [he]
+    have h := gamma_weight_shift τ hτ c₀
+      (-((P w).choose_spec.choose * (n : ℝ) : ℂ) - (P w).choose)
+    change Real.log ‖(pole w n) (τ u)‖ / Real.log 2 = b + _ at h
+    rw [h]
+    simp only [Complex.sub_re,Complex.neg_re,Complex.ofReal_re,Complex.mul_re,
+      Complex.ofReal_im,mul_zero,sub_zero]
+    ring
+  have hstep := (P w).choose_spec.choose_spec.1
+  have hnr : (n : ℝ) < N w := lt_of_le_of_lt
+    ((le_div_iff₀ hstep).mpr (by rw [hwgt] at hA; linarith)) (hN w)
+  have hnn : n < N w := by exact_mod_cast hnr
+  exact Set.mem_iUnion.mpr ⟨w,⟨⟨n,hnn⟩,he.symm⟩⟩
+
+private theorem gamma_finite_indices_above (ω : PontryaginDual J₁(S))
+    (τ : ℝ≥0ˣ →ₜ* J(S)) (hτ : RightInverse τ (m(S))) (A : ℝ) :
+    let u : ℝ≥0ˣ := Units.mk0 2 two_ne_zero
+    Set.Finite {j : ΓIndex(ω,(Set.univ : Set Xₛ)) |
+      A ≤ Real.log ‖j.val.1 (τ u)‖ / Real.log 2} := by
+  intro u
+  have hC := gamma_finite_centers_above ω τ hτ A
+  apply Set.Finite.of_injOn (f := fun j : ΓIndex(ω,(Set.univ : Set Xₛ)) ↦ j.val) ?_
+    Subtype.val_injective.injOn (hC.prod (Set.finite_Iic (Fintype.card (InfinitePlace F))))
+  intro j hj
+  exact ⟨⟨j.property.1,Finset.card_pos.mp (j.property.2.2.1.trans_le j.property.2.2.2),hj⟩,
+    j.property.2.2.2.trans (Finset.card_le_univ _)⟩
+
+private theorem gamma_block_code (ω : PontryaginDual J₁(S)) :
+    ∃ code : ΓIndex(ω,(Set.univ : Set Xₛ)) → ℕ,
+      (∀ i j, code i = code j ↔ i.val.1 = j.val.1) ∧
+      ∀ k, Finite {j : ΓIndex(ω,(Set.univ : Set Xₛ)) // code j = k} := by
+  classical
+  let C := {c : Xₛ // onComponent(c,ω) ∧ (arch(c)).Nonempty}
+  let center (j : ΓIndex(ω,(Set.univ : Set Xₛ))) : C :=
+    ⟨j.val.1,j.property.1,Finset.card_pos.mp (j.property.2.2.1.trans_le j.property.2.2.2)⟩
+  have : Countable (ΓIndex(ω,(Set.univ : Set Xₛ))) := sLocalGammaOrbitalQuotient_coeff_countable ω
+  have : Countable C := Function.Injective.countable
+    (f := fun c : C ↦ (⟨(c.val,1),c.property.1,Set.mem_univ _,one_pos,Finset.card_pos.mpr c.property.2⟩ : ΓIndex(ω,(Set.univ : Set Xₛ))))
+    (fun i j h ↦ Subtype.ext (congrArg (fun j : ΓIndex(ω,(Set.univ : Set Xₛ)) ↦ j.val.1) h))
+  let : Encodable C := Encodable.ofCountable C
+  let code (j : ΓIndex(ω,(Set.univ : Set Xₛ))) := Encodable.encode (center j)
+  have he (i j) : code i = code j ↔ i.val.1 = j.val.1 := by
+    constructor
+    · intro h
+      exact congrArg Subtype.val (Encodable.encode_injective h)
+    · intro h
+      exact congrArg Encodable.encode (Subtype.ext h)
+  refine ⟨code,he,fun k ↦ ?_⟩
+  let f : {j : ΓIndex(ω,(Set.univ : Set Xₛ)) // code j = k} → Fin (Fintype.card (InfinitePlace F)+1) :=
+    fun j ↦ ⟨j.val.val.2,Nat.lt_succ_of_le (j.val.property.2.2.2.trans (Finset.card_le_univ _))⟩
+  apply Finite.of_injective f
+  intro i j h
+  apply Subtype.ext
+  apply Subtype.ext
+  apply Prod.ext
+  · exact (he i.val j.val).mp (i.property.trans j.property.symm)
+  · exact congrArg Fin.val h
+
+private theorem gamma_positive_flow :
+    ∃ ν : Multiplicative ℝ →* ℝ≥0ˣ,
+      ∀ t : ℝ, ((ν (Multiplicative.ofAdd t)).val : ℝ) = Real.exp t := by
+  let ν : Multiplicative ℝ →* ℝ≥0ˣ :=
+    { toFun := fun t ↦ Units.mk0 (Real.exp t.toAdd).toNNReal (by positivity)
+      map_one' := by apply Units.ext; apply NNReal.coe_injective; simp
+      map_mul' := by
+        intro t u
+        apply Units.ext
+        apply NNReal.coe_injective
+        simp [Real.exp_add,max_eq_left (Real.exp_pos t.toAdd).le,
+          max_eq_left (Real.exp_pos u.toAdd).le,
+          max_eq_left (mul_nonneg (Real.exp_pos t.toAdd).le (Real.exp_pos u.toAdd).le)] }
+  exact ⟨ν,fun t ↦ Real.coe_toNNReal _ (Real.exp_pos t).le⟩
+
+private theorem gamma_character_exponent (τ : ℝ≥0ˣ →ₜ* J(S))
+    (ν : Multiplicative ℝ →* ℝ≥0ˣ)
+    (hν : ∀ t : ℝ, ((ν (Multiplicative.ofAdd t)).val : ℝ) = Real.exp t) (c : Xₛ) :
+    ∃ s : ℂ,
+      (∀ t : ℝ, c (τ (ν (Multiplicative.ofAdd t))) = Complex.exp (s*(t : ℂ))) ∧
+      (let u : ℝ≥0ˣ := Units.mk0 2 two_ne_zero
+       Real.log ‖c (τ u)‖ / Real.log 2 = s.re) := by
+  obtain ⟨s,hs,_⟩ := existsUnique_complexPower (c.comp τ)
+  refine ⟨s,fun t ↦ ?_,?_⟩
+  · have h := hs (ν (Multiplicative.ofAdd t))
+    change c (τ (ν (Multiplicative.ofAdd t))) =
+      ((((ν (Multiplicative.ofAdd t)).val : ℝ) : ℂ)^s) at h
+    rw [hν t] at h
+    rw [h,Complex.cpow_def_of_ne_zero (Complex.ofReal_ne_zero.mpr (Real.exp_pos _).ne'),
+      ← Complex.ofReal_log (Real.exp_pos _).le,Real.log_exp]
+    congr 1
+    ring
+  · intro u
+    have h := congrArg norm (hs u)
+    change ‖c (τ u)‖ = ‖(((u.val : ℝ) : ℂ)^s)‖ at h
+    have hu : ((u.val : ℝ)) = 2 := by norm_num [u]
+    rw [hu,Complex.norm_cpow_eq_rpow_re_of_pos (by norm_num)] at h
+    rw [h,Real.log_rpow (by norm_num)]
+    exact mul_div_cancel_right₀ _ (Real.log_pos (by norm_num : (1 : ℝ) < 2)).ne'
+
+private theorem gamma_action_laurent_class (ω : PontryaginDual J₁(S)) (x : Θ(S, ω))
+    (c : Xₛ) (hc : onComponent(c, ω)) (k : ℕ) (hk : k ≤ sLocalRhoPoleOrder c)
+    (g : J(S)) :
+    sLocalThetaPrincipalPartCoeff ω c hc k (A(S, ω) g x) =
+      c g * ∑ j ∈ Finset.range (sLocalRhoPoleOrder c-k+1),
+        sLocalThetaPrincipalPartCoeff ω c hc (k+j) x *
+          (Real.log (((m(S) g).val : ℝ)) : ℂ)^j / (j.factorial : ℂ) := by
+  refine Quotient.inductionOn' g ?_
+  intro u
+  exact gamma_action_laurent ω x c hc k hk u
+
+private theorem gamma_coefficient_decay (ω : PontryaginDual J₁(S))
+    (τ : ℝ≥0ˣ →ₜ* J(S)) (hτ : RightInverse τ (m(S)))
+    (ν : Multiplicative ℝ →* ℝ≥0ˣ)
+    (hν : ∀ t : ℝ, ((ν (Multiplicative.ofAdd t)).val : ℝ) = Real.exp t)
+    (ρ : J(S) →* (fullPV(ω) →L[ℂ] fullPV(ω)))
+    (hρ : ∀ g x, (ρ g x).val = A(S, ω) g x.val)
+    (c : Xₛ) (hc : onComponent(c, ω)) (k : ℕ) (hk : k ≤ sLocalRhoPoleOrder c)
+    (a : ℝ) (ha : Real.log ‖c (τ (Units.mk0 2 two_ne_zero))‖ / Real.log 2 < a)
+    (y : fullPV(ω)) :
+    Tendsto (fun t : ℝ ↦ Real.exp (-a*t) *
+      ‖sLocalThetaPrincipalPartCoeff ω c hc k (ρ (τ (ν (Multiplicative.ofAdd t))) y).val‖)
+      atTop (𝓝 0) := by
+  obtain ⟨s,hs,hw⟩ := gamma_character_exponent τ ν hν c
+  let N := sLocalRhoPoleOrder c-k+1
+  let b (j : ℕ) := sLocalThetaPrincipalPartCoeff ω c hc (k+j) y.val / (j.factorial : ℂ)
+  have he (t : ℝ) :
+      sLocalThetaPrincipalPartCoeff ω c hc k (ρ (τ (ν (Multiplicative.ofAdd t))) y).val =
+        Complex.exp (s*(t : ℂ)) * ∑ j ∈ Finset.range N, b j * (t : ℂ)^j := by
+    let g := τ (ν (Multiplicative.ofAdd t))
+    have hlog : Real.log (((m(S) g).val : ℝ)) = t := by
+      change Real.log (((m(S) (τ (ν (Multiplicative.ofAdd t)))).val : ℝ)) = t
+      rw [hτ,hν,Real.log_exp]
+    calc
+      _ = sLocalThetaPrincipalPartCoeff ω c hc k (A(S, ω) g y.val) :=
+        congrArg (sLocalThetaPrincipalPartCoeff ω c hc k) (hρ g y)
+      _ = c g * ∑ j ∈ Finset.range N,
+          sLocalThetaPrincipalPartCoeff ω c hc (k+j) y.val *
+            (Real.log (((m(S) g).val : ℝ)) : ℂ)^j / (j.factorial : ℂ) :=
+        gamma_action_laurent_class ω y.val c hc k hk g
+      _ = _ := by
+        apply congrArg₂ (fun u v : ℂ ↦ u*v) (hs t)
+        apply Finset.sum_congr rfl
+        intro j hj
+        calc
+          _ = sLocalThetaPrincipalPartCoeff ω c hc (k+j) y.val * (t : ℂ)^j / (j.factorial : ℂ) :=
+            congrArg (fun w : ℂ ↦ sLocalThetaPrincipalPartCoeff ω c hc (k+j) y.val * w^j / (j.factorial : ℂ))
+              (congrArg Complex.ofReal hlog)
+          _ = b j * (t : ℂ)^j := by dsimp [b]; ring
+  have hsa : s.re < a := by rw [← hw]; exact ha
+  exact (exponential_polynomial_decay s a hsa N b).congr'
+    (Eventually.of_forall fun t ↦ (congrArg (fun w : ℂ ↦ Real.exp (-a*t)*‖w‖) (he t)).symm)
+
+private theorem gamma_finite_coeff_independent (ω : PontryaginDual J₁(S))
+    (ι : Type*) [Finite ι] (j : ι → ΓIndex(ω,(Set.univ : Set Xₛ))) (hj : Injective j) :
+    LinearIndependent ℂ (fun i ↦ ΓCoeff(ω,j i)) := by
+  classical
+  let : Fintype ι := Fintype.ofFinite ι
+  choose N hN using fun i ↦ sLocalGammaFiltration_iInf_mem_cutoff ω (j i).val.1
+    (j i).property.1 (Finset.card_pos.mp ((j i).property.2.2.1.trans_le (j i).property.2.2.2))
+  let M : depths := Finset.univ.sup N
+  have hM (i : ι) : (j i).val.1 ∈ sLocalGammaPoleCutoff (F := F) (S := S) ω M := by
+    obtain ⟨hc,w,hw,hcard⟩ := hN i
+    refine ⟨hc,w,hw,hcard.trans ?_⟩
+    have hle : N i ≤ M := Finset.le_sup (Finset.mem_univ i)
+    exact_mod_cast hle w
+  let e (i : ι) : ΓIndex(ω,sLocalGammaPoleCutoff (F := F) (S := S) ω M) :=
+    ⟨(j i).val,(j i).property.1,hM i,(j i).property.2.2⟩
+  have he : Injective e := by
+    intro i k h
+    apply hj
+    exact Subtype.ext (congrArg (fun a : ΓIndex(ω,sLocalGammaPoleCutoff (F := F) (S := S) ω M) ↦ a.val) h)
+  exact (sLocalGammaFiltration_coeff_independent ω M).2.comp e he
+
+open Classical in
+private theorem gamma_prefix_biorthogonal (ω : PontryaginDual J₁(S))
+    (code : ΓIndex(ω,(Set.univ : Set Xₛ)) → ℕ)
+    (hf : ∀ n, Finite {j : ΓIndex(ω,(Set.univ : Set Xₛ)) // code j = n}) (k : ℕ) :
+    ∃ v : {j : ΓIndex(ω,(Set.univ : Set Xₛ)) // code j = k} → fullPV(ω),
+      (∀ i j, code j < k → ΓCoeff(ω,j) (v i) = 0) ∧
+      ∀ i j, (i = j → ΓCoeff(ω,j.val) (v i) = 1) ∧ (i ≠ j → ΓCoeff(ω,j.val) (v i) = 0) := by
+  classical
+  let I := {j : ΓIndex(ω,(Set.univ : Set Xₛ)) // code j ≤ k}
+  let B := {j : ΓIndex(ω,(Set.univ : Set Xₛ)) // code j = k}
+  letI : Finite I := finite_code_prefix _ code hf k
+  letI : Fintype I := Fintype.ofFinite I
+  have hli := gamma_finite_coeff_independent ω I Subtype.val Subtype.val_injective
+  have hs := finite_interpolation (fullPV(ω)) I (fun j ↦ ΓCoeff(ω,j.val)) hli
+  choose v hv using fun i : B ↦ hs (fun j : I ↦ if j.val = i.val then 1 else 0)
+  refine ⟨v,?_,?_⟩
+  · intro i j hj
+    have hne : j ≠ i.val := by
+      intro h
+      have hi := i.property
+      rw [← h] at hi
+      omega
+    exact (congrFun (hv i) ⟨j,le_of_lt hj⟩).trans (if_neg hne)
+  · intro i j
+    have h := congrFun (hv i) (⟨j.val,le_of_eq j.property⟩ : I)
+    constructor
+    · intro hij
+      exact h.trans (if_pos (congrArg Subtype.val hij).symm)
+    · intro hij
+      exact h.trans (if_neg (fun he ↦ hij (Subtype.ext he.symm)))
+
+private theorem gamma_coeff_kernel_invariant (ω : PontryaginDual J₁(S))
+    (ρ : J(S) →* (fullPV(ω) →L[ℂ] fullPV(ω)))
+    (hρ : ∀ g x, (ρ g x).val = A(S, ω) g x.val)
+    (U : Xₛ → Prop) (x : fullPV(ω))
+    (hx : ∀ j : ΓIndex(ω,(Set.univ : Set Xₛ)), U j.val.1 → ΓCoeff(ω,j) x = 0)
+    (g : J(S)) (j : ΓIndex(ω,(Set.univ : Set Xₛ))) (hj : U j.val.1) :
+    ΓCoeff(ω,j) (ρ g x) = 0 := by
+  have hk : j.val.2 ≤ sLocalRhoPoleOrder j.val.1 := by
+    rw [sLocalRhoPoleOrder_eq_card_polePlaces]
+    exact j.property.2.2.2.trans (Nat.le_add_right _ _)
+  change sLocalThetaPrincipalPartCoeff ω j.val.1 j.property.1 j.val.2 (ρ g x).val = 0
+  calc
+    _ = sLocalThetaPrincipalPartCoeff ω j.val.1 j.property.1 j.val.2 (A(S, ω) g x.val) :=
+      congrArg (sLocalThetaPrincipalPartCoeff ω j.val.1 j.property.1 j.val.2) (hρ g x)
+    _ = j.val.1 g * ∑ r ∈ Finset.range (sLocalRhoPoleOrder j.val.1-j.val.2+1),
+        sLocalThetaPrincipalPartCoeff ω j.val.1 j.property.1 (j.val.2+r) x.val *
+          (Real.log (((m(S) g).val : ℝ)) : ℂ)^r / (r.factorial : ℂ) :=
+      gamma_action_laurent_class ω x.val j.val.1 j.property.1 j.val.2 hk g
+    _ = 0 := by
+      have hz (r : ℕ) : sLocalThetaPrincipalPartCoeff ω j.val.1 j.property.1 (j.val.2+r) x.val = 0 := by
+        by_cases hr : j.val.2+r ≤ (arch(j.val.1)).card
+        · let j' : ΓIndex(ω,(Set.univ : Set Xₛ)) :=
+            ⟨(j.val.1,j.val.2+r),j.property.1,Set.mem_univ _,by have := j.property.2.2.1; omega,hr⟩
+          exact hx j' hj
+        · exact gamma_high_coeff_zero ω x j.val.1 j.property.1 _ (Nat.lt_of_not_ge hr)
+      rw [Finset.sum_eq_zero (fun r hr ↦ by rw [hz,zero_mul,zero_div]),mul_zero]
+
+private theorem gamma_coded_kernel (ω : PontryaginDual J₁(S))
+    (ρ : J(S) →* (fullPV(ω) →L[ℂ] fullPV(ω)))
+    (hρ : ∀ g x, (ρ g x).val = A(S, ω) g x.val)
+    (code : ΓIndex(ω,(Set.univ : Set Xₛ)) → ℕ)
+    (he : ∀ i j, code i = code j ↔ i.val.1 = j.val.1)
+    (p : ℕ → Prop) (g : J(S)) (x : fullPV(ω))
+    (hx : ∀ j, p (code j) → ΓCoeff(ω,j) x = 0)
+    (j : ΓIndex(ω,(Set.univ : Set Xₛ))) (hj : p (code j)) : ΓCoeff(ω,j) (ρ g x) = 0 := by
+  apply gamma_coeff_kernel_invariant ω ρ hρ
+    (fun c ↦ ∃ i, i.val.1 = c ∧ p (code i)) x ?_ g j ⟨j,rfl,hj⟩
+  intro i ⟨l,hli,hl⟩
+  have hcode := (he l i).mpr hli
+  exact hx i (hcode ▸ hl)
+
+private theorem gamma_unitary_interpolation (τ : ℝ≥0ˣ →ₜ* J(S)) (hτ : RightInverse τ (m(S)))
+    (χ : PontryaginDual J(S)) (hχ : ∀ u, χ (τ u) = 1) :
+    let ω := χ.comp (⟨(m(S)).ker.subtype, continuous_subtype_val⟩ : J₁(S) →ₜ* J(S))
+    Surjective (fun (x : fullPV(ω)) (j : ΓIndex(ω,(Set.univ : Set Xₛ))) ↦ ΓCoeff(ω,j) x) := by
+  classical
+  intro ω
+  obtain ⟨ν,hν⟩ := gamma_positive_flow
+  obtain ⟨ρ,hρ⟩ := gamma_full_action ω
+  obtain ⟨code,he,hf⟩ := gamma_block_code ω
+  let g : Multiplicative ℝ →* J(S) := τ.toMonoidHom.comp ν
+  let R (t : ℝ) := (ρ (g (Multiplicative.ofAdd (-t)))).toLinearMap
+  have hV := gamma_prefix_biorthogonal ω code hf
+  have hinv : ∀ t x, R t (R (-t) x) = x := by
+    intro t x
+    exact real_action_inverse _ (ρ.comp g) t x
+  have hF := gamma_range_frechet F S ω
+  apply surjective_of_translated_coefficients (fullPV(ω)) (ΓIndex(ω,(Set.univ : Set Xₛ))) hF
+    (fun j ↦ ΓCoeff(ω,j)) code hf hV R hinv ?_ ?_ ?_
+  · intro p t x hx j hj
+    exact gamma_coded_kernel ω ρ hρ code he p (g (Multiplicative.ofAdd (-t))) x hx j hj
+  · intro q hq
+    apply gamma_action_bound χ (fun t ↦ g (Multiplicative.ofAdd (-t))) ?_ ?_ ρ hρ q hq
+    · intro t
+      change (((m(S) (τ (ν (Multiplicative.ofAdd (-t))))).val : ℝ)) = _
+      rw [hτ,hν]
+    · intro t
+      exact hχ _
+  · intro a
+    let weight (j : ΓIndex(ω,(Set.univ : Set Xₛ))) :=
+      Real.log ‖j.val.1 (τ (Units.mk0 2 two_ne_zero))‖ / Real.log 2
+    have hbad : Set.Finite {j : ΓIndex(ω,(Set.univ : Set Xₛ)) | a ≤ weight j} :=
+      gamma_finite_indices_above ω τ hτ a
+    let K := hbad.toFinset.sup code + 1
+    refine ⟨K,fun j hj y ↦ ?_⟩
+    have hweight : weight j < a := by
+      by_contra h
+      have hmem : j ∈ hbad.toFinset := hbad.mem_toFinset.mpr (le_of_not_gt h)
+      have hb : code j ≤ hbad.toFinset.sup code := Finset.le_sup hmem
+      dsimp [K] at hj
+      omega
+    have hk : j.val.2 ≤ sLocalRhoPoleOrder j.val.1 := by
+      rw [sLocalRhoPoleOrder_eq_card_polePlaces]
+      exact j.property.2.2.2.trans (Nat.le_add_right _ _)
+    have h := gamma_coefficient_decay ω τ hτ ν hν ρ hρ j.val.1 j.property.1 j.val.2 hk a hweight y
+    change Tendsto (fun t : ℝ ↦ Real.exp (-a*t) *
+      ‖sLocalThetaPrincipalPartCoeff ω j.val.1 j.property.1 j.val.2
+        (ρ (τ (ν (Multiplicative.ofAdd (-(-t))))) y).val‖) atTop (𝓝 0)
+    simpa only [neg_neg] using h
+
+end GammaInterpolationHelpers
+
+/-- Paper: Theorem 7.3.4.1(4), p. 365.
+Every array of archimedean principal parts on the component is realized by one
+class in the full finite principal-value range.
+Deviation: States explicitly the interpolation needed for the canonical product model. -/
+theorem sLocalGamma_all_coeff_surjective (ω : PontryaginDual J₁(S)) :
+    Function.Surjective (fun (x : fullPV(ω)) (j : ΓIndex(ω, (Set.univ : Set Xₛ))) ↦
+      ΓCoeff(ω, j) x) := by
+  obtain ⟨τ,hτ⟩ := sIdeleQuotientNorm_exists_section F S
+  obtain ⟨χ,⟨hω,hχ⟩,_⟩ := existsUnique_sLocalNormSectionCharacter τ hτ ω
+  subst ω
+  exact gamma_unitary_interpolation τ hτ χ hχ
+
+
 
 /-- A surjective continuous linear map from a Fréchet space onto a countable product of
 complex lines is open. -/
