@@ -1,6 +1,7 @@
 module
 
 public import RiemannMasullo.Ch10_TraceSpectral.Sec4a
+import Mathlib.Analysis.SpecificLimits.Normed
 import Mathlib.Analysis.InnerProductSpace.l2Space
 import Mathlib.Analysis.Normed.Group.Quotient
 import all RiemannMasullo.Ch10_TraceSpectral.Sec1
@@ -39,13 +40,117 @@ def Printed.hardySobolevTranslation_conformal : Prop :=
       (∀ u v, p (u + v) ^ 2 + p (u - v) ^ 2 = 2 * (p u ^ 2 + p v ^ 2)) ∧
       ∀ g : C𝔽(F), ∃ c : ℝ, 0 < c ∧ ∀ u, p (T g u) = c * p u
 
+/-- A conformal operator with polynomially bounded powers cannot expand its seminorm. -/
+private theorem hardySobolevTranslation_conformal_linear_growth (E : Type) [NormedAddCommGroup E] [NormedSpace ℂ E]
+    (T : E →L[ℂ] E) (p : Seminorm ℂ E) (B c C : ℝ) (hc : 0 < c)
+    (hupper : ∀ u, p u ≤ B * ‖u‖) (hscale : ∀ u, p (T u) = c * p u)
+    (hbound : ∀ n : ℕ, ‖T ^ n‖ ≤ C * (1 + (n : ℝ)))
+    (u : E) (hu : 0 < p u) : c ≤ 1 := by
+  by_contra h
+  have hc1 : 1 < c := lt_of_not_ge h
+  have hp (n : ℕ) : p ((T ^ n) u) = c ^ n * p u := by
+    induction n with
+    | zero => simp
+    | succ n ih => simp [pow_succ', hscale, ih, mul_assoc]
+  have hb (n : ℕ) : p u ≤ B * C * ‖u‖ * ((1 + (n : ℝ)) / c ^ n) := by
+    have h1 := (hupper ((T ^ n) u)).trans
+      (mul_le_mul_of_nonneg_left ((ContinuousLinearMap.le_opNorm (T ^ n) u).trans
+        (mul_le_mul_of_nonneg_right (hbound n) (norm_nonneg u))) (by
+          have h := hupper u
+          nlinarith [norm_nonneg u]))
+    rw [hp] at h1
+    rw [← mul_div_assoc]
+    apply (le_div_iff₀ (pow_pos hc n)).mpr
+    nlinarith
+  have ht : Filter.Tendsto (fun n : ℕ ↦ B * C * ‖u‖ * ((1 + (n : ℝ)) / c ^ n)) Filter.atTop (nhds 0) := by
+    have h0 := tendsto_pow_const_div_const_pow_of_one_lt 0 hc1
+    have h1 := tendsto_pow_const_div_const_pow_of_one_lt 1 hc1
+    simpa [pow_zero, pow_one, add_div] using (h0.add h1).const_mul (B * C * ‖u‖)
+  have hz := le_of_tendsto_of_tendsto tendsto_const_nhds ht (Filter.Eventually.of_forall hb)
+  exact (not_le_of_gt hu) hz
+
+/-- Two-sided polynomial growth makes a conformal group element power-bounded. -/
+private theorem hardySobolevTranslation_conformal_bounded_powers (G E : Type) [Group G] [NormedAddCommGroup E]
+    [NormedSpace ℂ E] (T : G →* (E →L[ℂ] E)) (p : Seminorm ℂ E)
+    (b B : ℝ) (hb : 0 < b) (hB : 0 < B)
+    (hcompare : ∀ u, b * ‖u‖ ≤ p u ∧ p u ≤ B * ‖u‖)
+    (hconformal : ∀ g, ∃ c : ℝ, 0 < c ∧ ∀ u, p (T g u) = c * p u)
+    (g : G) (hbound : ∀ n : ℕ, ‖T (g ^ n)‖ ≤ 1 + (n : ℝ))
+    (hinvbound : ∀ n : ℕ, ‖T (g⁻¹ ^ n)‖ ≤ 1 + (n : ℝ))
+    (u : E) (hu : u ≠ 0) : ∀ n : ℕ, ‖T (g ^ n)‖ ≤ B / b := by
+  have hpu : 0 < p u := (mul_pos hb (norm_pos_iff.mpr hu)).trans_le (hcompare u).1
+  obtain ⟨c, hc, hscale⟩ := hconformal g
+  obtain ⟨d, hd, hscaleInv⟩ := hconformal g⁻¹
+  have hc1 : c ≤ 1 := hardySobolevTranslation_conformal_linear_growth E (T g) p B c 1 hc (fun v ↦ (hcompare v).2)
+    hscale (by simpa only [one_mul, map_pow] using hbound) u hpu
+  have hd1 : d ≤ 1 := hardySobolevTranslation_conformal_linear_growth E (T g⁻¹) p B d 1 hd (fun v ↦ (hcompare v).2)
+    hscaleInv (by simpa only [one_mul, map_pow] using hinvbound) u hpu
+  have hid : T g⁻¹ (T g u) = u := by
+    change (T g⁻¹ * T g) u = u
+    rw [← map_mul, inv_mul_cancel, map_one]
+    rfl
+  have hprod := hscaleInv (T g u)
+  rw [hid, hscale] at hprod
+  have heq : c = 1 := by nlinarith [mul_le_mul_of_nonneg_left hd1 hc.le]
+  have hpow (n : ℕ) (v : E) : p (T (g ^ n) v) = p v := by
+    induction n with
+    | zero => simp
+    | succ n ih =>
+      rw [pow_succ', map_mul]
+      change p (T g (T (g ^ n) v)) = p v
+      rw [hscale, heq, one_mul, ih]
+  intro n
+  apply ContinuousLinearMap.opNorm_le_bound (T (g ^ n)) (le_of_lt (div_pos hB hb))
+  intro v
+  have hl := (hcompare (T (g ^ n) v)).1
+  rw [hpow] at hl
+  have hh := hl.trans (hcompare v).2
+  rw [div_mul_eq_mul_div]
+  apply (le_div_iff₀ hb).mpr
+  nlinarith
+
 /-- Paper: Remark 10.4.1.4, p. 457. Take F = ℚ and s = 2. The powers of a
 class of logarithmic norm one and of its inverse have polynomial norm bounds,
 so its dilation factor in any equivalent conformal norm must equal one.
 On the indicator of the log-norm band [0, 1], the norms of the translates by
 positive powers grow without bound in the weighted Hilbert norm. -/
 theorem Printed.hardySobolevTranslation_conformal_false :
-    ¬ Printed.hardySobolevTranslation_conformal := by sorry
+    ¬ Printed.hardySobolevTranslation_conformal := by
+  intro h
+  have hrat := h ℚ 1
+  norm_num only [Nat.cast_one, mul_one] at hrat
+  obtain ⟨p, b, B, hb, hB, hcompare, hparallelogram, hconformal⟩ := hrat
+  let N : ℝ≥0ˣ := Units.mk0 (⟨Real.exp 1, (Real.exp_pos 1).le⟩ : ℝ≥0) (NNReal.coe_ne_zero.mp (Real.exp_ne_zero 1))
+  let g : C𝔽(ℚ) := QuotientGroup.mk (canonicalIdeleNormSection ℚ N)
+  have hg : Real.log ((ideleClassNorm ℚ g).val : ℝ) = 1 := by
+    rw [show ideleClassNorm ℚ g = N from canonicalIdeleNormSection_rightInverse ℚ N]
+    exact Real.log_exp 1
+  let T := hardySobolevTranslation (ideleClassTamagawaMeasure ℚ) (m𝔽(ℚ)) 0 0 (2 * ((1 : ℕ) : ℝ)) le_rfl (by norm_num)
+  have hnorm (x : C𝔽(ℚ)) (hx : |Real.log ((ideleClassNorm ℚ x).val : ℝ)| = 1) (k : ℕ) :
+      ‖T (x ^ k)‖ ≤ 1 + (k : ℝ) := by
+    have hh := norm_hardySobolevTranslation_le (ideleClassTamagawaMeasure ℚ) (m𝔽(ℚ)) 0 0
+      (2 * ((1 : ℕ) : ℝ)) le_rfl (by norm_num) (x ^ k)
+    apply hh.trans_eq
+    change |Real.log (((m𝔽(ℚ)) x).val : ℝ)| = 1 at hx
+    simp [map_pow, NNReal.coe_pow, Real.log_pow, abs_mul,
+      abs_of_nonneg (Nat.cast_nonneg k : (0 : ℝ) ≤ (k : ℝ)), hx]
+  have hginv : |Real.log ((ideleClassNorm ℚ g⁻¹).val : ℝ)| = 1 := by
+    simp [map_inv, hg]
+  obtain ⟨k, hk⟩ := hardySobolevTranslation_zeroBase_powers_unbounded (F := ℚ) 1 (by norm_num) g hg 1
+  have hne : T (g ^ k) ≠ 0 := by
+    apply norm_pos_iff.mp
+    exact zero_lt_one.trans (by simpa [T] using hk)
+  obtain ⟨u, hu⟩ := DFunLike.ne_iff.mp hne
+  have hu0 : u ≠ 0 := by
+    intro hu0
+    apply hu
+    subst u
+    change (T (g ^ k)) 0 = 0
+    exact (T (g ^ k)).map_zero
+  have hbound := hardySobolevTranslation_conformal_bounded_powers _ _ T p b B hb hB hcompare hconformal g
+    (hnorm g (by rw [hg]; norm_num)) (hnorm g⁻¹ hginv) u hu0
+  obtain ⟨n, hn⟩ := hardySobolevTranslation_zeroBase_powers_unbounded (F := ℚ) 1 (by norm_num) g hg (B / b)
+  exact (not_lt_of_ge (hbound n)) (by simpa [T] using hn)
 
 section ApproximateLifts
 
