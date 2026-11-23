@@ -215,6 +215,167 @@ theorem geometricTruncation_add_spectralTruncation (hρ : IsModulatedCutoff m�
     geometricTruncation a hα hs hρ + spectralTruncation a hα hs hρ = M(hρ) :=
   w18_comp_add_comp _ _ _ fun u ↦ Submodule.starProjection_add_starProjection_orthogonal u
 
+
+/-- An L² indicator represents a set whose mass is the squared norm. -/
+private theorem hardySobolevTranslation_zeroBase_powers_unbounded_indicator_mass (X : Type*) [MeasurableSpace X] (ν : Measure X)
+    (A : Set X) (hA : MeasurableSet A) (u : Lp ℂ 2 ν)
+    (hu : (u : X → ℂ) =ᵐ[ν] A.indicator (fun _ ↦ (1 : ℂ))) :
+    ν A = ENNReal.ofReal (‖u‖ ^ 2) := by
+  have hnorm : eLpNorm (u : X → ℂ) 2 ν = (ν A) ^ (1 / 2 : ℝ) := by
+    rw [eLpNorm_congr_ae hu, eLpNorm_indicator_const hA.nullMeasurableSet (by norm_num) (by norm_num)]
+    simp
+  have hsq : ((ν A) ^ (1 / 2 : ℝ)) ^ 2 = ν A := by
+    rw [← ENNReal.rpow_natCast, ← ENNReal.rpow_mul]
+    norm_num
+  calc
+    ν A = (eLpNorm (u : X → ℂ) 2 ν) ^ 2 := by rw [hnorm, hsq]
+    _ = ENNReal.ofReal (‖u‖ ^ 2) := by
+      rw [ENNReal.ofReal_pow (norm_nonneg u), Lp.norm_def,
+        ENNReal.ofReal_toReal (Lp.eLpNorm_ne_top u)]
+
+/-- Powers of a log-norm-one element give a quadratic lower bound for translated weighted mass. -/
+private theorem hardySobolevTranslation_zeroBase_powers_unbounded_lower
+    (G : Type*) [Group G] [MeasurableSpace G] [MeasurableMul G]
+    (μ : Measure G) [μ.IsMulLeftInvariant] (l : G → ℝ)
+    (hlmul : ∀ x y, l (x * y) = l x + l y) (g : G)
+    (hlpow : ∀ k : ℕ, l (g ^ k) = (k : ℝ))
+    (n : ℕ) (hn : 0 < n) (A : Set G) (hA : MeasurableSet A)
+    (hleft : ∀ x ∈ A, -1 ≤ l x) (k : ℕ) (hk : 1 ≤ k) :
+    ENNReal.ofReal (((k : ℝ) - 1) ^ 2) * μ A ≤
+      (μ.withDensity (fun x ↦ ENNReal.ofReal ((1 + (l x) ^ 2) ^ n)))
+        ((fun x ↦ (g ^ k)⁻¹ * x) ⁻¹' A) := by
+  let B := (fun x ↦ (g ^ k)⁻¹ * x) ⁻¹' A
+  have hB : MeasurableSet B := hA.preimage (measurable_const_mul _)
+  have hmass : μ B = μ A := measure_preimage_mul μ (g ^ k)⁻¹ A
+  change _ ≤ (μ.withDensity (fun x ↦ ENNReal.ofReal ((1 + (l x) ^ 2) ^ n))) B
+  rw [withDensity_apply _ hB]
+  calc
+    ENNReal.ofReal (((k : ℝ) - 1) ^ 2) * μ A = ∫⁻ x in B, ENNReal.ofReal (((k : ℝ) - 1) ^ 2) ∂μ := by simp [hmass]
+    _ ≤ ∫⁻ x in B, ENNReal.ofReal ((1 + (l x) ^ 2) ^ n) ∂μ := by
+      apply lintegral_mono_ae
+      apply ae_restrict_of_forall_mem hB
+      intro x hx
+      apply ENNReal.ofReal_le_ofReal
+      have hx' : -1 ≤ l ((g ^ k)⁻¹ * x) := hleft _ hx
+      have heq : l x = (k : ℝ) + l ((g ^ k)⁻¹ * x) := by
+        rw [← hlpow, ← hlmul]
+        simp
+      have hk' : (1 : ℝ) ≤ k := by exact_mod_cast hk
+      have hbase : 1 ≤ 1 + (l x) ^ 2 := by nlinarith [sq_nonneg (l x)]
+      have hpower : 1 + (l x) ^ 2 ≤ (1 + (l x) ^ 2) ^ n := le_self_pow₀ hbase hn.ne'
+      nlinarith
+
+/-- A bounded log-norm band has controlled weighted mass. -/
+private theorem hardySobolevTranslation_zeroBase_powers_unbounded_upper
+    (G : Type*) [MeasurableSpace G] (μ : Measure G) (l : G → ℝ)
+    (n : ℕ) (A : Set G) (hA : MeasurableSet A) (hband : ∀ x ∈ A, |l x| ≤ 1) :
+    (μ.withDensity (fun x ↦ ENNReal.ofReal ((1 + (l x) ^ 2) ^ n))) A ≤
+      ENNReal.ofReal (2 ^ n : ℝ) * μ A := by
+  rw [withDensity_apply _ hA]
+  calc
+    (∫⁻ x in A, ENNReal.ofReal ((1 + (l x) ^ 2) ^ n) ∂μ) ≤ ∫⁻ x in A, ENNReal.ofReal (2 ^ n : ℝ) ∂μ := by
+      apply lintegral_mono_ae
+      apply ae_restrict_of_forall_mem hA
+      intro x hx
+      apply ENNReal.ofReal_le_ofReal
+      have hb := abs_le.mp (hband x hx)
+      exact pow_le_pow_left₀ (by positivity) (by nlinarith [sq_nonneg (l x)]) n
+    _ = _ := by simp
+
+/-- A proper modulus has a compact positive-mass log band with finite weighted mass. -/
+private theorem hardySobolevTranslation_zeroBase_powers_unbounded_band
+    (G : Type*) [CommGroup G] [TopologicalSpace G] [IsTopologicalGroup G] [T2Space G]
+    [LocallyCompactSpace G] [MeasurableSpace G] [BorelSpace G]
+    (μ : Measure G) [μ.IsHaarMeasure] (m : G →ₜ* ℝ≥0ˣ) (hm : IsProperMap m) (n : ℕ) :
+    ∃ A : Set G, MeasurableSet A ∧ μ A ≠ 0 ∧ μ A ≠ ⊤ ∧
+      (∀ x ∈ A, |Real.log ((m x).val : ℝ)| ≤ 1) ∧
+      (μ.withDensity (fun x ↦ ENNReal.ofReal ((1 + (Real.log ((m x).val : ℝ)) ^ 2) ^ n))) A ≠ ⊤ := by
+  let e : ℝ≥0ˣ ≃ₜ ℝ := (Nonneg.unitsHomeomorphPos ℝ).trans Real.expOrderIso.symm.toHomeomorph
+  have he (t : ℝ≥0ˣ) : e t = Real.log (t.val : ℝ) := (Real.log_of_pos (NNReal.coe_pos.mpr t.zero_lt)).symm
+  let l : G → ℝ := fun x ↦ Real.log ((m x).val : ℝ)
+  let A : Set G := l ⁻¹' Icc (-1) 1
+  have hl : Continuous l := by simpa [l, Function.comp_def, he] using e.continuous.comp m.continuous
+  have hcompact : IsCompact A := by
+    have hh := (e.isProperMap.comp hm).isCompact_preimage (isCompact_Icc (a := (-1 : ℝ)) (b := 1))
+    simpa only [Function.comp_def, he] using hh
+  have hA : MeasurableSet A := hcompact.measurableSet
+  have hmass : μ A ≠ 0 := by
+    have hU : IsOpen (l ⁻¹' Ioo (-1) 1) := isOpen_Ioo.preimage hl
+    have hnonempty : (l ⁻¹' Ioo (-1) 1).Nonempty := ⟨1, by simp [l]⟩
+    intro hzero
+    exact hU.measure_ne_zero μ hnonempty (measure_mono_null (preimage_mono Ioo_subset_Icc_self) hzero)
+  have hband (x : G) (hx : x ∈ A) : |l x| ≤ 1 := abs_le.mpr hx
+  have hfinite : μ A ≠ ⊤ := hcompact.measure_lt_top.ne
+  refine ⟨A, hA, hmass, hfinite, hband, ?_⟩
+  exact ne_top_of_le_ne_top (ENNReal.mul_ne_top ENNReal.ofReal_ne_top hfinite)
+    (hardySobolevTranslation_zeroBase_powers_unbounded_upper G μ l n A hA hband)
+
+/-- A polynomial log weight makes translation powers unbounded in operator norm. -/
+private theorem hardySobolevTranslation_zeroBase_powers_unbounded_weighted
+    (G : Type*) [CommGroup G] [TopologicalSpace G] [IsTopologicalGroup G] [T2Space G]
+    [LocallyCompactSpace G] [MeasurableSpace G] [BorelSpace G]
+    (μ : Measure G) [μ.IsHaarMeasure] (m : G →ₜ* ℝ≥0ˣ) (hm : IsProperMap m)
+    (n : ℕ) (hn : 0 < n) (g : G) (hg : Real.log ((m g).val : ℝ) = 1)
+    (d : G → ENNReal) (hd : Measurable d)
+    (hdeq : ∀ x, d x = ENNReal.ofReal ((1 + (Real.log ((m x).val : ℝ)) ^ 2) ^ n)) :
+    let ν := μ.withDensity d
+    ∀ (T : G →* (Lp ℂ 2 ν →L[ℂ] Lp ℂ 2 ν)),
+      (∀ h u, (T h u : G → ℂ) =ᵐ[μ] fun x ↦ u (h⁻¹ * x)) →
+      ∀ C : ℝ, ∃ k : ℕ, C < ‖T (g ^ k)‖ := by
+  intro ν T hT C
+  classical
+  let l : G → ℝ := fun x ↦ Real.log ((m x).val : ℝ)
+  have hl : Measurable l := Real.measurable_log.comp
+    (NNReal.continuous_coe.comp (Units.continuous_val.comp m.continuous)).measurable
+  have hdensity : d = (fun x ↦ ENNReal.ofReal ((1 + (l x) ^ 2) ^ n)) := funext hdeq
+  have hpos (x : G) : 0 < (1 + (l x) ^ 2) ^ n := pow_pos (by nlinarith [sq_nonneg (l x)]) _
+  have hμν : μ ≪ ν := withDensity_absolutelyContinuous' hd.aemeasurable
+    (Filter.Eventually.of_forall (fun x ↦ by rw [hdeq]; exact (ENNReal.ofReal_pos.mpr (hpos x)).ne'))
+  have hνμ : ν ≪ μ := withDensity_absolutelyContinuous _ _
+  obtain ⟨A, hA, hApos, hAfinite, hband, hνA⟩ := hardySobolevTranslation_zeroBase_powers_unbounded_band G μ m hm n
+  have hνA' : ν A ≠ ⊤ := by simpa only [ν, hdensity] using hνA
+  let f : G → ℂ := A.indicator (fun _ ↦ (1 : ℂ))
+  have hf : MemLp f 2 ν := memLp_indicator_const 2 hA.nullMeasurableSet 1 (Or.inr hνA')
+  let u : Lp ℂ 2 ν := hf.toLp f
+  have hu : (u : G → ℂ) =ᵐ[μ] f := hμν.ae_eq (MemLp.coeFn_toLp hf)
+  have hlmul (x y : G) : l (x * y) = l x + l y := by
+    simp only [l, map_mul, Units.val_mul, NNReal.coe_mul]
+    exact Real.log_mul (NNReal.coe_ne_zero.mpr (m x).ne_zero) (NNReal.coe_ne_zero.mpr (m y).ne_zero)
+  have hlpow (k : ℕ) : l (g ^ k) = (k : ℝ) := by
+    simp [l, map_pow, NNReal.coe_pow, Real.log_pow, hg]
+  have hmasspos : 0 < (μ A).toReal := ENNReal.toReal_pos hApos hAfinite
+  have hlower (k : ℕ) (hk : 1 ≤ k) : ((k : ℝ) - 1) ^ 2 * (μ A).toReal ≤ ‖T (g ^ k) u‖ ^ 2 := by
+    let B := (fun x ↦ (g ^ k)⁻¹ * x) ⁻¹' A
+    have hB : MeasurableSet B := hA.preimage (measurable_const_mul _)
+    have hrep : (T (g ^ k) u : G → ℂ) =ᵐ[ν] B.indicator (fun _ ↦ (1 : ℂ)) := by
+      apply hνμ.ae_eq
+      have ht := (hT (g ^ k) u).trans
+        ((measurePreserving_mul_left μ (g ^ k)⁻¹).quasiMeasurePreserving.ae_eq_comp hu)
+      exact ht.trans (Filter.Eventually.of_forall (fun x ↦ by simp [f, B, indicator_apply]))
+    have hmB := hardySobolevTranslation_zeroBase_powers_unbounded_indicator_mass G ν B hB (T (g ^ k) u) hrep
+    have hh := hardySobolevTranslation_zeroBase_powers_unbounded_lower G μ l hlmul g hlpow n hn A hA
+      (fun x hx ↦ (abs_le.mp (hband x hx)).1) k hk
+    have hνeq : μ.withDensity (fun x ↦ ENNReal.ofReal ((1 + (l x) ^ 2) ^ n)) = ν := by simp only [ν, hdensity]
+    rw [hνeq] at hh
+    rw [hmB] at hh
+    have hr := ENNReal.toReal_mono ENNReal.ofReal_ne_top hh
+    simpa only [ENNReal.toReal_mul, ENNReal.toReal_ofReal (sq_nonneg _)] using hr
+  by_contra! hbounded
+  have hC : 0 ≤ C := (norm_nonneg (T (g ^ 0))).trans (hbounded 0)
+  have hupper (k : ℕ) : ‖T (g ^ k) u‖ ≤ C * ‖u‖ :=
+    ((T (g ^ k)).le_opNorm u).trans (mul_le_mul_of_nonneg_right (hbounded k) (norm_nonneg u))
+  obtain ⟨j, hj⟩ := exists_nat_gt (C * ‖u‖ / Real.sqrt ((μ A).toReal) + 1)
+  have hsqrt : 0 < Real.sqrt ((μ A).toReal) := Real.sqrt_pos.mpr hmasspos
+  have hmul : C * ‖u‖ < (j : ℝ) * Real.sqrt ((μ A).toReal) :=
+    (div_lt_iff₀ hsqrt).mp (by linarith [hj])
+  have hh := hlower (j + 1) (by omega)
+  simp only [Nat.cast_add, Nat.cast_one, add_sub_cancel_right] at hh
+  have hsq : ((j : ℝ) * Real.sqrt ((μ A).toReal)) ^ 2 = (j : ℝ) ^ 2 * (μ A).toReal := by
+    rw [mul_pow, Real.sq_sqrt (le_of_lt hmasspos)]
+  have hu_nonneg : 0 ≤ C * ‖u‖ := mul_nonneg hC (norm_nonneg u)
+  have hsquared := (sq_lt_sq₀ hu_nonneg (hu_nonneg.trans_lt hmul).le).mpr hmul
+  nlinarith [hupper (j + 1), norm_nonneg (T (g ^ (j + 1)) u)]
+
 /-- Paper: Remark 10.4.1.4, p. 457. For the singleton base and positive even
 degree the translation operators are unbounded in operator norm along powers
 of a class of logarithmic norm one.
@@ -224,7 +385,21 @@ theorem hardySobolevTranslation_zeroBase_powers_unbounded (n : ℕ) (_hn : 0 < n
     (g : C𝔽) (_hg : logNorm g = 1) :
     ∀ C : ℝ, ∃ k : ℕ, C <
       ‖hardySobolevTranslation μ𝔽 m𝔽 0 0 (2 * (n : ℝ)) le_rfl
-        (mul_nonneg zero_le_two (Nat.cast_nonneg n)) (g ^ k)‖ := by sorry
+        (mul_nonneg zero_le_two (Nat.cast_nonneg n)) (g ^ k)‖ := by
+  let d : C𝔽 → ENNReal := fun x ↦ ENNReal.ofReal (intervalSobolevDensity 0 0 (2 * (n : ℝ)) (logNorm x))
+  have hdeq (x : C𝔽) : d x = ENNReal.ofReal ((1 + (logNorm x) ^ 2) ^ n) := by
+    simp [d, intervalSobolevDensity, Real.rpow_natCast]
+  have hd : Measurable d := by
+    rw [show d = (fun x ↦ ENNReal.ofReal ((1 + (logNorm x) ^ 2) ^ n)) from funext hdeq]
+    have hl : Measurable logNorm := Real.measurable_log.comp
+      (NNReal.continuous_coe.comp (Units.continuous_val.comp (isProperMap_ideleClassNorm F).continuous)).measurable
+    fun_prop
+  with_unfolding_all
+    exact hardySobolevTranslation_zeroBase_powers_unbounded_weighted C𝔽 μ𝔽 m𝔽
+      (isProperMap_ideleClassNorm F) n _hn g _hg d hd hdeq
+      (hardySobolevTranslation μ𝔽 m𝔽 0 0 (2 * (n : ℝ)) le_rfl (mul_nonneg zero_le_two (Nat.cast_nonneg n)))
+      (fun h u ↦ hardySobolevTranslation_apply μ𝔽 m𝔽 0 0 (2 * (n : ℝ)) le_rfl
+        (mul_nonneg zero_le_two (Nat.cast_nonneg n)) h u)
 
 /-- Paper: Remark 10.4.1.4, p. 457. By invariance of theta, an output
 geometric projection has no effect after convolution of a geometric vector. -/
