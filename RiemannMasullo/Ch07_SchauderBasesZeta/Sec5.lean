@@ -4,6 +4,8 @@ public import RiemannMasullo.Ch07_SchauderBasesZeta.Sec4
 
 import all RiemannMasullo.AppA_AlgebraicNT.Sec3
 
+import all RiemannMasullo.Ch03_IdelicZeta.Sec2
+
 /-! # §7.5 Strong co-primality -/
 
 @[expose] public noncomputable section
@@ -43,7 +45,11 @@ local instance instIdeleClassSecondCountableSec5 : SecondCountableTopology C𝔽
 
 /-- Paper: Equation (7.5.0.2), p. 374.
 The pole-free homogeneous theta space is the quotient of zero-moment tests
-by the kernel of their homogeneous theta transform. -/
+by the kernel of their homogeneous theta transform.
+
+Kept as an `abbrev` for now (#5398): as a `def` with its own instances it breaks proofs and
+statements that use it, see the issue. Do not copy this pattern: a new type synonym with
+structure is a `def` with its own instances (`AGENTS.md`). -/
 abbrev StrongCoprimalityThetaSpace (ω : PontryaginDual C₁) := ↥P ⧸ K(ω)
 
 /-- Paper: Equation (7.5.0.2), p. 374.
@@ -74,7 +80,11 @@ def strongCoprimalityDenominator (ω : PontryaginDual C₁) (S : Finset V) :
       strongCoprimalityPrincipalValue_mem_polar S f⟩ : StrongCoprimalityThetaSpace ω))
 
 /-- Paper: Equation (7.5.0.3), p. 375.
-The global orbital quotient carries the quotient topology of the pole-free theta space. -/
+The global orbital quotient carries the quotient topology of the pole-free theta space.
+
+Kept as an `abbrev` for now (#5398): as a `def` with its own instances it breaks proofs and
+statements that use it, see the issue. Do not copy this pattern: a new type synonym with
+structure is a `def` with its own instances (`AGENTS.md`). -/
 abbrev StrongCoprimalityQuotient (ω : PontryaginDual C₁) (S : Finset V) :=
   StrongCoprimalityThetaSpace ω ⧸ strongCoprimalityDenominator ω S
 
@@ -367,7 +377,11 @@ theorem strongCoprimalityDenominator_insert_le (ω : PontryaginDual C₁) (S : F
 open Classical in
 /-- Paper: Equation (7.5.0.4), p. 375.
 The layer for one added place is the quotient of the current principal-value image
-by the image after applying principal value at that place as well. -/
+by the image after applying principal value at that place as well.
+
+Kept as an `abbrev` for now (#5398): as a `def` with its own instances it breaks proofs and
+statements that use it, see the issue. Do not copy this pattern: a new type synonym with
+structure is a `def` with its own instances (`AGENTS.md`). -/
 abbrev StrongCoprimalityLayer (ω : PontryaginDual C₁) (S : Finset V) (v : V) :=
   let D := strongCoprimalityDenominator ω S
   D ⧸ (strongCoprimalityDenominator ω (insert v S)).comap D.subtype
@@ -413,7 +427,28 @@ theorem strongCoprimalityFourierJet_mk (s : ℂ) (k : ℕ) (f : P) :
     let Z := fun z ↦ globalIdelicZFunction (adeleSchwartzFourier f.val)
       (ideleClassNormTwist χ⁻¹ z)
     Differentiable ℂ Z ∧
-      strongCoprimalityFourierJet χ τ hτ s k ((K(ω(χ))).mkQ f) = iteratedDeriv k Z (1 - s) := by sorry
+      strongCoprimalityFourierJet χ τ hτ s k ((K(ω(χ))).mkQ f) = iteratedDeriv k Z (1 - s) := by
+  let Z := fun z ↦ globalIdelicZFunction (adeleSchwartzFourier f.val) (ideleClassNormTwist χ⁻¹ z)
+  let G := fun z ↦ globalIdelicZFunction f.val (ideleClassNormTwist χ z)
+  have href : Z = fun z ↦ G (1 - z) := by
+    funext z
+    have hz := globalIdelicZFunction_functionalEquation f.val (ideleClassNormTwist χ (1 - z))
+    rw [dualQuasiCharacter_ideleClassNormTwist, sub_sub_cancel] at hz
+    exact hz.symm
+  have hG : Differentiable ℂ G := globalIdelicZFunction_entire_of_vanishing f.val f.property χ
+  change Differentiable ℂ Z ∧ _ = iteratedDeriv k Z (1 - s)
+  constructor
+  · rw [href]
+    exact hG.comp ((differentiable_const (c := (1 : ℂ))).sub differentiable_id)
+  · let M := (exists_globalPolarThetaMellin χ τ hτ).choose
+    have he : ((schwartzBergmanEntireInclusion (M ((K(ω(χ))).mkQ f))).val : ℂ → ℂ) = G := by
+      funext z
+      rw [schwartzBergmanEntireInclusion_apply]
+      exact ((exists_globalPolarThetaMellin χ τ hτ).choose_spec f z).2
+    change (-1 : ℂ) ^ k • iteratedDeriv k
+      ((schwartzBergmanEntireInclusion (M ((K(ω(χ))).mkQ f))).val : ℂ → ℂ) s = _
+    rw [he, href, iteratedDeriv_comp_const_sub]
+    simp only [sub_sub_cancel]
 
 /-- Paper: Equation (7.5.0.8), p. 377.
 At each regular center on the imaginary axis the reflected jet is defined on
@@ -553,7 +588,9 @@ At the places above one rational prime the denominator agrees with the
 primary denominator of §7.4. -/
 theorem strongCoprimalityDenominator_primary (p : Vℚ) :
     let T := (finite_nuclearityPlacesAbove (F := F) p).toFinset
-    strongCoprimalityDenominator (ω(χ)) T = finiteNuclearityDenominator χ p := by sorry
+    strongCoprimalityDenominator (ω(χ)) T = finiteNuclearityDenominator χ p := by
+  unfold strongCoprimalityDenominator finiteNuclearityDenominator
+  with_reducible rfl
 
 /-- Paper: Remark 7.5.0.2 and Equation (7.5.0.15), p. 378.
 The primary principal-value quotient is a Hausdorff nuclear Fréchet space. -/

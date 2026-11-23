@@ -2,6 +2,7 @@ module
 
 public import RiemannMasullo.Ch05_ThetaZSpaces.Sec3a
 public import RiemannMasullo.AppD_SchwartzBruhat.Sec3b
+import Mathlib.Algebra.Order.Archimedean.Real.Hom
 import all RiemannMasullo.AppD_SchwartzBruhat.Sec1b
 import all RiemannMasullo.AppD_SchwartzBruhat.Sec2b
 import all RiemannMasullo.AppD_SchwartzBruhat.Sec3a
@@ -1115,12 +1116,53 @@ theorem archimedeanWeightedSchwartzSubmodule_singleton_zero :
 
 /-- Paper: Lemma 5.3.3.3, p. 252.
 The topology is the initial locally convex topology for all the partial weight maps into
-the Schwartz–Bruhat space in (5.3.3.8). -/
-abbrev ArchimedeanWeightedSchwartz (I : Set ℝ) :=
+the Schwartz–Bruhat space in (5.3.3.8).
+
+This is a `def` with its own instances, not an `abbrev`, so that instance terms over it do
+not spell out its seminorm family (#5398). -/
+def ArchimedeanWeightedSchwartz (I : Set ℝ) :=
   WithGeneratingSeminorms (archimedeanWeightedSchwartzSubmodule (ι := ι) (κ := κ) I)
     (fun i : weights(ι, κ, I) ×
       {p : Seminorm ℂ (SchwartzBruhat (archMul(ι, κ))) // Continuous p} ↦
       i.2.val.comp (archimedeanSchwartzTwist I i.1))
+
+namespace ArchimedeanWeightedSchwartz
+
+variable (I : Set ℝ)
+
+instance instAddCommGroup : AddCommGroup (ArchimedeanWeightedSchwartz (ι := ι) (κ := κ) I) :=
+  inferInstanceAs (AddCommGroup (WithGeneratingSeminorms
+    (archimedeanWeightedSchwartzSubmodule (ι := ι) (κ := κ) I) _))
+
+instance instModule : Module ℂ (ArchimedeanWeightedSchwartz (ι := ι) (κ := κ) I) :=
+  inferInstanceAs (Module ℂ (WithGeneratingSeminorms
+    (archimedeanWeightedSchwartzSubmodule (ι := ι) (κ := κ) I) _))
+
+instance instTopologicalSpace :
+    TopologicalSpace (ArchimedeanWeightedSchwartz (ι := ι) (κ := κ) I) :=
+  inferInstanceAs (TopologicalSpace (WithGeneratingSeminorms
+    (archimedeanWeightedSchwartzSubmodule (ι := ι) (κ := κ) I) _))
+
+instance instPolynormableSpace :
+    PolynormableSpace ℂ (ArchimedeanWeightedSchwartz (ι := ι) (κ := κ) I) :=
+  inferInstanceAs (PolynormableSpace ℂ (WithGeneratingSeminorms
+    (archimedeanWeightedSchwartzSubmodule (ι := ι) (κ := κ) I) _))
+
+instance instIsTopologicalAddGroup :
+    IsTopologicalAddGroup (ArchimedeanWeightedSchwartz (ι := ι) (κ := κ) I) :=
+  inferInstanceAs (IsTopologicalAddGroup (WithGeneratingSeminorms
+    (archimedeanWeightedSchwartzSubmodule (ι := ι) (κ := κ) I) _))
+
+instance instUniformSpace : UniformSpace (ArchimedeanWeightedSchwartz (ι := ι) (κ := κ) I) :=
+  inferInstanceAs (UniformSpace (WithGeneratingSeminorms
+    (archimedeanWeightedSchwartzSubmodule (ι := ι) (κ := κ) I) _))
+
+instance instIsUniformAddGroup :
+    IsUniformAddGroup (ArchimedeanWeightedSchwartz (ι := ι) (κ := κ) I) :=
+  inferInstanceAs (IsUniformAddGroup (WithGeneratingSeminorms
+    (archimedeanWeightedSchwartzSubmodule (ι := ι) (κ := κ) I) _))
+
+end ArchimedeanWeightedSchwartz
 
 local notation "𝓦(" I ")" => ArchimedeanWeightedSchwartz (ι := ι) (κ := κ) I
 
@@ -1238,7 +1280,65 @@ def archimedeanFlatSchwartz : Submodule ℂ 𝓢(archAdd(ι, κ), ℂ) :=
 For one real factor the jet conditions recover the real flat subspace of §5.3.2. -/
 theorem archimedeanFlatSchwartz_one_real :
     ∃ e : ↥(archimedeanFlatSchwartz (ι := Unit) (κ := Empty)) ≃L[ℂ] ↥realSchwartzFlatAtOrigin,
-      ∀ f (x : ℝ), (e f).val x = f.val (fun _ ↦ x, fun j ↦ Empty.elim j) := by sorry
+      ∀ f (x : ℝ), (e f).val x = f.val (fun _ ↦ x, fun j ↦ Empty.elim j) := by
+  let L : ℝ ≃ₗ[ℝ] ((Unit → ℝ) × (Empty → ℂ)) :=
+    { toFun := fun x ↦ (fun _ ↦ x, fun j ↦ Empty.elim j)
+      invFun := fun p ↦ p.1 ()
+      map_add' := fun x y ↦ Prod.ext rfl (funext fun j ↦ Empty.elim j)
+      map_smul' := fun t x ↦ Prod.ext rfl (funext fun j ↦ Empty.elim j)
+      left_inv := fun x ↦ rfl
+      right_inv := fun p ↦ Prod.ext (funext fun _ ↦ rfl) (funext fun j ↦ Empty.elim j) }
+  let φ : ℝ ≃L[ℝ] ((Unit → ℝ) × (Empty → ℂ)) := L.toContinuousLinearEquiv
+  let A : 𝓢((Unit → ℝ) × (Empty → ℂ), ℂ) →L[ℂ] 𝓢(ℝ, ℂ) :=
+    SchwartzMap.compCLMOfContinuousLinearEquiv ℂ φ
+  let B : 𝓢(ℝ, ℂ) →L[ℂ] 𝓢((Unit → ℝ) × (Empty → ℂ), ℂ) :=
+    SchwartzMap.compCLMOfContinuousLinearEquiv ℂ φ.symm
+  -- Pulling back along the coordinate line gives a real function flat at zero.
+  have hA (f : 𝓢((Unit → ℝ) × (Empty → ℂ), ℂ))
+      (hf : f ∈ archimedeanFlatSchwartz (ι := Unit) (κ := Empty)) :
+      A f ∈ realSchwartzFlatAtOrigin := by
+    rw [mem_realSchwartzFlatAtOrigin_iff]
+    intro k
+    simp only [archimedeanFlatSchwartz, Submodule.mem_iInf, LinearMap.mem_ker,
+      IsLinearMap.mk'_apply] at hf
+    have h0 := hf ⟨φ 0, Or.inl ⟨(), rfl⟩⟩ k (fun _ ↦ φ 1)
+    rw [iteratedDeriv_eq_iteratedFDeriv]
+    change iteratedFDeriv ℝ k ((f : (Unit → ℝ) × (Empty → ℂ) → ℂ) ∘ φ) 0 (fun _ ↦ 1) = 0
+    erw [φ.toContinuousLinearMap.iteratedFDeriv_comp_right (f.smooth ⊤) 0 (i := k)
+      (mod_cast le_top)]
+    exact h0
+  -- Conversely every jet on the wall is a multiple of a derivative at zero.
+  have hB (g : 𝓢(ℝ, ℂ)) (hg : g ∈ realSchwartzFlatAtOrigin) :
+      B g ∈ archimedeanFlatSchwartz (ι := Unit) (κ := Empty) := by
+    rw [mem_realSchwartzFlatAtOrigin_iff] at hg
+    simp only [archimedeanFlatSchwartz, Submodule.mem_iInf, LinearMap.mem_ker,
+      IsLinearMap.mk'_apply]
+    rintro ⟨x, hx⟩ n v
+    have hx0 : φ.symm x = 0 := by
+      rcases hx with ⟨i, hi⟩ | ⟨j, _⟩
+      · cases i
+        exact hi
+      · exact j.elim
+    change iteratedFDeriv ℝ n ((g : ℝ → ℂ) ∘ φ.symm) x v = 0
+    erw [φ.symm.toContinuousLinearMap.iteratedFDeriv_comp_right (g.smooth ⊤) x (i := n)
+      (mod_cast le_top)]
+    rw [ContinuousMultilinearMap.compContinuousLinearMap_apply]
+    change iteratedFDeriv ℝ n (g : ℝ → ℂ) (φ.symm x) (fun i ↦ φ.symm (v i)) = 0
+    rw [hx0, iteratedFDeriv_apply_eq_iteratedDeriv_mul_prod, hg, smul_zero]
+  let e : ↥(archimedeanFlatSchwartz (ι := Unit) (κ := Empty)) ≃L[ℂ]
+      ↥realSchwartzFlatAtOrigin :=
+    ContinuousLinearEquiv.equivOfInverse
+      ((A.comp (archimedeanFlatSchwartz (ι := Unit) (κ := Empty)).subtypeL).codRestrict
+        realSchwartzFlatAtOrigin fun f ↦ hA f f.2)
+      ((B.comp realSchwartzFlatAtOrigin.subtypeL).codRestrict
+        (archimedeanFlatSchwartz (ι := Unit) (κ := Empty)) fun g ↦ hB g g.2)
+      (fun f ↦ Subtype.ext (SchwartzMap.ext fun y ↦ by
+        change (f.val : (Unit → ℝ) × (Empty → ℂ) → ℂ) (φ (φ.symm y)) = f.val y
+        rw [ContinuousLinearEquiv.apply_symm_apply]))
+      (fun g ↦ Subtype.ext (SchwartzMap.ext fun y ↦ by
+        change (g.val : ℝ → ℂ) (φ.symm (φ y)) = g.val y
+        rw [ContinuousLinearEquiv.symm_apply_apply]))
+  exact ⟨e, fun f x ↦ rfl⟩
 
 /-- Paper: Lemma 5.3.3.3(3), p. 252.
 For one complex factor the real jet conditions recover the mixed Wirtinger conditions of §5.3.2. -/
@@ -1665,7 +1765,40 @@ theorem sAdeleFiniteZeroSchwartz_tmul_iff (T : Finset V)
     (_hg : ∀ v, g v ≠ 0) :
     let e := (sAdeleSchwartz_inductiveTensor_equiv F S).choose
     e (f ⊗ₜ[ℂ] (⨂ₜ[ℂ] v, g v)) ∈ sAdeleFiniteZeroSchwartz S T ↔
-      ∀ v : S, v.val ∈ T → g v (Multiplicative.ofAdd 0) = 0 := by sorry
+      ∀ v : S, v.val ∈ T → g v (Multiplicative.ofAdd 0) = 0 := by
+  classical
+  let e := (sAdeleSchwartz_inductiveTensor_equiv F S).choose
+  let u := e (f ⊗ₜ[ℂ] (⨂ₜ[ℂ] v, g v))
+  let X := {x : SAdeleRing F S // ∃ v : S, v.val ∈ T ∧ x.2 v = 0}
+  have mem : u ∈ sAdeleFiniteZeroSchwartz S T ↔ ∀ x : X, u (Multiplicative.ofAdd x.val) = 0 :=
+    Submodule.mem_iInf _
+  have he (x : SAdeleRing F S) : u (Multiplicative.ofAdd x) =
+      f (Multiplicative.ofAdd x.1) * ∏ v : S, g v (Multiplicative.ofAdd (x.2 v)) :=
+    (sAdeleSchwartz_inductiveTensor_equiv F S).choose_spec f g x
+  change u ∈ sAdeleFiniteZeroSchwartz S T ↔ _
+  rw [mem]
+  constructor
+  · intro hu v hv
+    by_contra hne
+    obtain ⟨a, ha⟩ : ∃ a : A∞, f (Multiplicative.ofAdd a) ≠ 0 := by
+      by_contra! hn
+      exact _hf (Subtype.ext (funext fun x ↦ hn x.toAdd))
+    have hnon (w : S) : ∃ y : w.val.adicCompletion F, g w (Multiplicative.ofAdd y) ≠ 0 := by
+      by_contra! hn
+      exact _hg w (Subtype.ext (funext fun x ↦ hn x.toAdd))
+    choose y hy using hnon
+    let b := Function.update y v 0
+    have hz := hu ⟨(a, b), v, hv, Function.update_self ..⟩
+    rw [he] at hz
+    apply (mul_ne_zero ha (Finset.prod_ne_zero_iff.mpr ?_)) hz
+    intro w _
+    by_cases hw : w = v
+    · subst w
+      simpa [b] using hne
+    · simpa [b, Function.update_of_ne hw] using hy w
+  · intro h x
+    obtain ⟨v, hv, hx⟩ := x.property
+    rw [he, Finset.prod_eq_zero (Finset.mem_univ v) (by rw [hx, h v hv]), mul_zero]
 
 /-- Paper: Proposition 5.3.4.5(3), p. 264.
 The selected finite zero-coordinate conditions cut out the span in (5.3.4.15).
@@ -1701,10 +1834,104 @@ theorem sAdelePolarFree_translate (r : RealModels) (c : ComplexModels)
     (g : Aₛˣ) (f : ℬₛ) (_hf : f ∈ sAdelePolarFree S r c) :
     schwartzBruhatUnitTranslate g f ∈ sAdelePolarFree S r c := by sorry
 
+/-- Composing a flat Schwartz function with a real-linear automorphism of the
+archimedean coordinates that keeps the coordinate walls keeps it flat. -/
+private theorem archimedeanFlatSchwartz_comp_wall (D : ArchCoordinates ≃L[ℝ] ArchCoordinates)
+    (hD : ∀ x : ArchCoordinates, ((∃ i, x.1 i = 0) ∨ (∃ j, x.2 j = 0)) →
+      ((∃ i, (D x).1 i = 0) ∨ (∃ j, (D x).2 j = 0)))
+    (h : 𝓢(ArchCoordinates, ℂ))
+    (hh : h ∈ archimedeanFlatSchwartz (ι := RealPlaces) (κ := ComplexPlaces)) :
+    SchwartzMap.compCLMOfContinuousLinearEquiv ℂ D h ∈
+      archimedeanFlatSchwartz (ι := RealPlaces) (κ := ComplexPlaces) := by
+  simp only [archimedeanFlatSchwartz, Submodule.mem_iInf, LinearMap.mem_ker,
+    IsLinearMap.mk'_apply] at hh ⊢
+  rintro ⟨x, hx⟩ n v
+  have hcomp := D.toContinuousLinearMap.iteratedFDeriv_comp_right (h.smooth ⊤) x
+    (i := n) (mod_cast le_top)
+  change iteratedFDeriv ℝ n ((h : ArchCoordinates → ℂ) ∘ D) x v = 0
+  erw [hcomp]
+  exact hh ⟨D x, hD x hx⟩ n (fun i ↦ D (v i))
+
+/-- Changing the archimedean field identifications changes each slice by a
+real-linear automorphism of the coordinates that keeps the walls. -/
+private theorem sAdelePolarFree_le_of_models (r r' : RealModels) (c c' : ComplexModels) :
+    sAdelePolarFree S r c ≤ sAdelePolarFree S r' c' := by
+  classical
+  intro f hf
+  obtain ⟨hz, hflat⟩ := Submodule.mem_inf.1 hf
+  refine Submodule.mem_inf.2 ⟨hz, ?_⟩
+  -- At a real place both identifications agree, since `ℝ` has one ring endomorphism.
+  have hR (w : RealPlaces) (t : ℝ) : (r' w).val.symm t = (r w).val.symm t := by
+    have hρ : (r w).val.toRingHom.comp (r' w).val.symm.toRingHom = RingHom.id ℝ :=
+      Subsingleton.elim _ _
+    have h1 := RingHom.congr_fun hρ t
+    simp only [RingHom.comp_apply, RingEquiv.toRingHom_eq_coe, RingEquiv.coe_toRingHom,
+      RingHom.id_apply] at h1
+    calc (r' w).val.symm t = (r w).val.symm ((r w).val ((r' w).val.symm t)) :=
+          ((r w).val.symm_apply_apply _).symm
+      _ = (r w).val.symm t := by rw [h1]
+  -- At a complex place they differ by a continuous automorphism of `ℂ`.
+  have hcont (w : ComplexPlaces) : Continuous (c' w).val.symm := by
+    convert (IsHomeomorph.homeomorph _ (c' w).property).symm.continuous using 1
+    funext z
+    apply (c' w).property.injective
+    rw [RingEquiv.apply_symm_apply]
+    exact ((IsHomeomorph.homeomorph _ (c' w).property).apply_symm_apply z).symm
+  let ψ (w : ComplexPlaces) : ℂ →+* ℂ :=
+    (c w).val.toRingHom.comp (c' w).val.symm.toRingHom
+  let ψ' (w : ComplexPlaces) : ℂ →+* ℂ :=
+    (c' w).val.toRingHom.comp (c w).val.symm.toRingHom
+  have hψ (w : ComplexPlaces) (z : ℂ) : ψ w z = (c w).val ((c' w).val.symm z) := rfl
+  have hψ' (w : ComplexPlaces) (z : ℂ) : ψ' w z = (c' w).val ((c w).val.symm z) := rfl
+  have hreal (w : ComplexPlaces) (t : ℝ) : ψ w t = t := by
+    rcases Complex.ringHom_eq_id_or_conj_of_continuous (f := ψ w)
+      ((c w).property.continuous.comp (hcont w)) with h | h
+    · rw [h, RingHom.id_apply]
+    · rw [h]
+      exact Complex.conj_ofReal t
+  let L : ArchCoordinates ≃ₗ[ℝ] ArchCoordinates :=
+    { toFun := fun x ↦ (x.1, fun w ↦ ψ w (x.2 w))
+      invFun := fun x ↦ (x.1, fun w ↦ ψ' w (x.2 w))
+      map_add' := fun x y ↦ Prod.ext rfl (funext fun w ↦ map_add _ _ _)
+      map_smul' := fun t x ↦ Prod.ext rfl (funext fun w ↦ by
+        change ψ w (t • x.2 w) = t • ψ w (x.2 w)
+        rw [Complex.real_smul, Complex.real_smul, map_mul, hreal])
+      left_inv := fun x ↦ Prod.ext rfl (funext fun w ↦ by
+        change ψ' w (ψ w (x.2 w)) = x.2 w
+        rw [hψ, hψ', RingEquiv.symm_apply_apply, RingEquiv.apply_symm_apply])
+      right_inv := fun x ↦ Prod.ext rfl (funext fun w ↦ by
+        change ψ w (ψ' w (x.2 w)) = x.2 w
+        rw [hψ, hψ', RingEquiv.symm_apply_apply, RingEquiv.apply_symm_apply]) }
+  let D : ArchCoordinates ≃L[ℝ] ArchCoordinates := L.toContinuousLinearEquiv
+  have hD (x : ArchCoordinates) : D x = (x.1, fun w ↦ ψ w (x.2 w)) := rfl
+  have hwall (x : ArchCoordinates) : ((∃ i, x.1 i = 0) ∨ (∃ j, x.2 j = 0)) →
+      ((∃ i, (D x).1 i = 0) ∨ (∃ j, (D x).2 j = 0)) := by
+    rintro (⟨i, hi⟩ | ⟨j, hj⟩)
+    · exact Or.inl ⟨i, by simp [hD, hi]⟩
+    · exact Or.inr ⟨j, by simp [hD, hj]⟩
+  have hasm (x : ArchCoordinates) : assemble(r, c, D x) = assemble(r', c', x) := by
+    funext w
+    by_cases hw : w.IsReal
+    · simp only [hw, ↓reduceDIte, hD, hR]
+    · simp only [hw, ↓reduceDIte, hD, hψ, RingEquiv.symm_apply_apply]
+  simp only [Submodule.mem_iInf] at hflat ⊢
+  intro y
+  have hy := hflat y
+  simp only [Submodule.mem_comap, Submodule.mem_map] at hy ⊢
+  obtain ⟨h, hh, hfun⟩ := hy
+  refine ⟨SchwartzMap.compCLMOfContinuousLinearEquiv ℂ D h,
+    archimedeanFlatSchwartz_comp_wall D hwall h hh, ?_⟩
+  funext x
+  refine (congrFun hfun (D x)).trans ?_
+  change f (Multiplicative.ofAdd (assemble(r, c, D x), y)) =
+    f (Multiplicative.ofAdd (assemble(r', c', x), y))
+  rw [hasm]
+
 /-- Paper: Lemma 5.3.4.2(1), p. 260.
 The polar-free subspace is independent of the archimedean field identifications. -/
 theorem sAdelePolarFree_eq_of_models (r r' : RealModels) (c c' : ComplexModels) :
-    sAdelePolarFree S r c = sAdelePolarFree S r' c' := by sorry
+    sAdelePolarFree S r c = sAdelePolarFree S r' c' :=
+  le_antisymm (sAdelePolarFree_le_of_models r r' c c') (sAdelePolarFree_le_of_models r' r c' c)
 
 -- TODO(paper-gap): The proof of (2) starts from entireness and concludes local vanishing.
 -- Restricted local characters are coupled by the S-units, and a pole can cancel against

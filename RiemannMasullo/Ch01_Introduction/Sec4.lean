@@ -202,7 +202,24 @@ theorem introTracePower_two :
 /-- Paper: §1.4.2, p. 28. The radial power is smooth on the two real
 intervals separated by its jump at one. -/
 theorem introTracePower_contDiffOn (z : ℂ) :
-    ContDiffOn ℝ ⊤ (introTracePower z) ({1}ᶜ : Set ℝ) := by sorry
+    ContDiffOn ℝ ⊤ (introTracePower z) ({1}ᶜ : Set ℝ) := by
+  intro x hx
+  refine ContDiffAt.contDiffWithinAt ?_
+  rcases lt_or_gt_of_ne (show x ≠ 1 from hx) with h | h
+  · have : introTracePower z =ᶠ[nhds x] fun _ ↦ 0 := by
+      filter_upwards [eventually_lt_nhds h] with t ht
+      simp [introTracePower, ht.not_gt, ht.ne]
+    exact contDiffAt_const.congr_of_eventuallyEq this
+  · have : introTracePower z =ᶠ[nhds x]
+        fun t : ℝ ↦ Complex.exp ((Real.log t : ℂ) * (-z)) := by
+      filter_upwards [eventually_gt_nhds h] with t ht
+      have ht0 : (t : ℂ) ≠ 0 := Complex.ofReal_ne_zero.2 (by linarith)
+      simp only [introTracePower, ht, ↓reduceIte, Complex.cpow_def_of_ne_zero ht0,
+        Complex.ofReal_log (by linarith : (0 : ℝ) ≤ t)]
+    refine ContDiffAt.congr_of_eventuallyEq ?_ this
+    have hlog : ContDiffAt ℝ ⊤ Real.log x := Real.contDiffAt_log.2 (by linarith)
+    exact Complex.contDiff_exp.contDiffAt.comp x
+      ((Complex.ofRealCLM.contDiff.contDiffAt.comp x hlog).mul contDiffAt_const)
 
 /-- Paper: §1.4.2, p. 28. The limiting power depends holomorphically
 on the complex parameter at each fixed radial coordinate. -/
@@ -356,7 +373,13 @@ standing hypothesis of the trace identity, vanishing at every norm-one class. -/
 theorem introTraceApprox_zero_on_normOne (χ : U𝔽) (h ρ : ℕ → ℝ → ℝ)
     (_hA : IsIntroTraceApproximation h ρ) (n : ℕ) (z : ℂ) :
     ∀ g : (ideleClassNorm F).ker,
-      introTraceTest χ (introTraceApprox (h n) (ρ n) z) g.val = 0 := by sorry
+      introTraceTest χ (introTraceApprox (h n) (ρ n) z) g.val = 0 := by
+  intro g
+  have hzero : introTraceApprox (h n) (ρ n) z 1 = 0 := by
+    apply image_eq_zero_of_notMem_tsupport
+    exact fun ht ↦ lt_irrefl (1 : ℝ) (introTraceApprox_support h ρ _hA n z ht)
+  have hg : ideleClassNorm F g.val = 1 := g.property
+  simp [introTraceTest, hg, hzero]
 
 /-- Paper: §§1.4.2–1.4.3, pp. 28–29. For a fixed Mellin exponent `s`,
 the approximant moments converge locally uniformly on `Re z > Re s`
@@ -446,7 +469,11 @@ theorem introTraceApprox_rat_spectral_tendsto_atBot (h ρ : ℕ → ℝ → ℝ)
 where every cutoff test vanishes. -/
 theorem introTraceApprox_primePower_inv_zero (h ρ : ℕ → ℝ → ℝ)
     (_hA : IsIntroTraceApproximation h ρ) (n : ℕ) (z : ℂ) (v : V) (m : ℕ) (_hm : 0 < m) :
-    approx(h, ρ, n, z) ((q(v) ^ m)⁻¹) = 0 := by sorry
+    approx(h, ρ, n, z) ((q(v) ^ m)⁻¹) = 0 := by
+  have hq : 1 ≤ q(v) := by exact_mod_cast (NumberField.HeightOneSpectrum.one_lt_absNorm v).le
+  have hle : (q(v) ^ m)⁻¹ ≤ 1 := inv_le_one_of_one_le₀ (one_le_pow₀ hq)
+  apply image_eq_zero_of_notMem_tsupport
+  exact fun ht ↦ hle.not_gt (introTraceApprox_support h ρ _hA n z ht)
 
 /-- Paper: §1.4.4, p. 29. The finite terms converge locally uniformly to
 the negative logarithmic derivative of the finite Hecke L-function.
@@ -592,7 +619,21 @@ theorem introTrace_transition_mellin (S : Finset V) (χ : U𝔽)
     (fun s ↦ globalIdelicZFunction (sAdeleSchwartzToGlobal F S f) (ideleClassNormTwist χ s))
       =ᶠ[codiscrete ℂ] (fun s ↦
         outsideMass(S) * sLocalIdelicZFunction f (twist s) * heckeEulerProductOutside S χ hχ s) :=
-  by sorry
+  by
+  let L := finiteL(χ)
+  obtain ⟨hL, hs⟩ := (finiteHeckeL_exists_continuation χ).choose_spec
+  have hraw := weilIdentity_unramifiedOutside_meromorphic (F := F) S f χ hχ L hL
+    (fun z hz ↦ hs ⟨z, hz⟩)
+  have hm : MeromorphicOn (fun z ↦ reciprocalPartialHeckeEulerProduct χ S z * L z) univ :=
+    fun z hz ↦ ((strongCoprimalityJetMatrix_det_ne_zero_euler χ S).1 z).meromorphicAt.mul
+      (hL hz).meromorphicAt
+  have he : (fun z ↦ reciprocalPartialHeckeEulerProduct χ S z * L z)
+      =ᶠ[codiscrete ℂ] heckeEulerProductOutside S χ hχ := by
+    rw [heckeEulerProductOutside_eq_finite S χ hχ L hL hs]
+    simpa only [Filter.codiscrete] using toMeromorphicNFOn_eqOn_codiscrete hm
+  filter_upwards [hraw, he] with z htrans heuler
+  rw [htrans, ← heuler]
+  simp only [reciprocalPartialHeckeEulerProduct, mul_assoc]
 
 -- On theta classes this is the representative formula for sLocalThetaToGlobal_mk,
 -- globalThetaMellin_mk and sLocalThetaMellin_mk from §§5.1–5.2.
