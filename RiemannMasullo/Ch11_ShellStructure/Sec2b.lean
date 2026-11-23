@@ -6,7 +6,7 @@ public import RiemannMasullo.Ch07_SchauderBasesZeta.Sec4
 import all RiemannMasullo.Ch10_TraceSpectral.Sec1
 import all RiemannMasullo.Ch05_ThetaZSpaces.Sec2b
 import all RiemannMasullo.AppC_LCTVS.Sec3a_part2
-import all RiemannMasullo.Ch09_HardySobolev.Sec3
+import RiemannMasullo.Ch09_HardySobolev.Sec3
 
 import all RiemannMasullo.Ch07_SchauderBasesZeta.Sec1b
 
