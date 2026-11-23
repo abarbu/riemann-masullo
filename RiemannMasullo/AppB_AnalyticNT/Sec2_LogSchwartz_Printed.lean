@@ -46,7 +46,10 @@ Take the constant function `1`, with degree zero and constant one in the usual p
 growth bound. The printed bound with `N = 1` at `t = 1` would give `1 ≤ 0`. -/
 theorem Printed.logPolynomialGrowth_bound_for_every_exponent_false :
     ¬ Printed.logPolynomialGrowth_bound_for_every_exponent := by
-  sorry
+  intro h
+  obtain ⟨C, _, hC⟩ := h (fun _ ↦ 1) ⟨0, 1, zero_lt_one, by simp⟩ 1
+  have hbad := hC ⟨1, zero_lt_one⟩
+  norm_num at hbad
 
 /-- Paper: Lemma B.2.1.4(1), p. 593.
 As printed: every Schwartz profile on the positive reals with backward semi-exponential decay
